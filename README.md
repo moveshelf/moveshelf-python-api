@@ -1,2 +1,5 @@
-# moveshelf-python-api
-Moveshelf public Python API
+# Moveshelf Python API package
+
+```sh
+pip install moveshelf-api
+```
