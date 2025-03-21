@@ -424,11 +424,11 @@ class MoveshelfApi(object):
                     }
                 }
             ''',
-            sessionId = session_id,
-            sessionName = session_name,
-            sessionMetadata = session_metadata,
-            sessionDate = session_date,
-            previousUpdatedAt = previous_updated_at
+            sessionId=session_id,
+            sessionName=session_name,
+            sessionMetadata=session_metadata,
+            sessionDate=session_date,
+            previousUpdatedAt=previous_updated_at
         )
 
         return data['updateSession']['updated']
@@ -622,7 +622,7 @@ class MoveshelfApi(object):
                 }
             }
             ''',
-            projectId = project_id
+            projectId=project_id
         )
         return data['node']['patientsList']
     
@@ -646,8 +646,8 @@ class MoveshelfApi(object):
                 }
             }
             ''',
-            ehrId = ehr_id,
-            projectId = project_id
+            ehrId=ehr_id,
+            projectId=project_id
         )
         return data['patient']
 
