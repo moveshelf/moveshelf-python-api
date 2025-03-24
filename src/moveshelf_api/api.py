@@ -395,6 +395,43 @@ class MoveshelfApi(object):
         )
 
         return data['createSession']['session']
+    
+    def updateSessionMetadataInfo(self, session_id, session_name, session_metadata, session_date = None, previous_updated_at = None):
+        """
+        Update the metadata for an existing session.
+
+        Args:
+            session_id (str): The ID of the session to update.
+            session_name (str): The new name for the session to update.
+            session_metadata (dict): The metadata to save for the session.
+            session_date (str): The new date for the session to update. If empty, skips update of session date. Defaults to None.
+            previous_updated_at (str): The previous updated in ISO format. If empty, force update. Defaults to None.
+
+        Returns:
+            bool: Whether the metadata update was successful.
+        """
+        data = self._dispatch_graphql(
+            '''
+                mutation updateSession($sessionId: ID!, $sessionName: String!, $sessionMetadata: JSONString, $sessionDate: String, $previousUpdatedAt: String) {
+                    updateSession(
+                        sessionId: $sessionId,
+                        sessionName: $sessionName,
+                        sessionMetadata: $sessionMetadata,
+                        sessionDate: $sessionDate,
+                        previousUpdatedAt: $previousUpdatedAt
+                    ) {
+                        updated
+                    }
+                }
+            ''',
+            sessionId=session_id,
+            sessionName=session_name,
+            sessionMetadata=session_metadata,
+            sessionDate=session_date,
+            previousUpdatedAt=previous_updated_at
+        )
+
+        return data['updateSession']['updated']
 
     def getProjectClips(self, project_id, limit, include_download_link=False):
         """
@@ -559,16 +596,27 @@ class MoveshelfApi(object):
             project_id (str): The ID of the project to retrieve subjects for.
 
         Returns:
-            list: A list of dictionaries, each containing the subject's ID and name.
+            list: A list of dictionaries, each containing the subject's ID, name, update date, and externalId (i.e., EHR-ID/MRN).
         """
         data = self._dispatch_graphql(
             '''
             query getProjectPatients($projectId: ID!) {
                 node(id: $projectId) {
                     ... on Project {
-                        patients {
+                        id,
+                        name,
+                        description,
+                        configuration,
+                        canEdit,
+                        template {
+                            name,
+                            data  
+                        },
+                        patientsList {
                             id
                             name
+                            updated
+                            externalId
                         }
                     }
                 }
@@ -576,7 +624,32 @@ class MoveshelfApi(object):
             ''',
             projectId=project_id
         )
-        return [{k: v for k, v in p.items() if k in ['name', 'id']} for p in data['node']['patients']]
+        return data['node']['patientsList']
+    
+    def getProjectSubjectByEhrId(self, ehr_id, project_id):
+        """
+        Retrieve the subject with the specified ehr_id associated with a specific project.
+
+        Args:
+            ehr_id (str): The EHR-ID/MRN of the subject to be retrieved
+            project_id (str): The ID of the project to retrieve the subject for.
+        Returns:
+            dict: A dictionary containing the subject's ID and name. Returns None if no subject with
+                matching EHR-ID/MRN exists in the specified project.
+        """
+        data = self._dispatch_graphql(
+            '''
+            query getPatientByEhrId($ehrId: String!, $projectId: String!) {
+                patient(ehrId: $ehrId, projectId: $projectId) {
+                id
+                name
+                }
+            }
+            ''',
+            ehrId=ehr_id,
+            projectId=project_id
+        )
+        return data['patient']
 
     def getSubjectDetails(self, subject_id):
         """
