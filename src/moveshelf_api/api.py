@@ -307,17 +307,131 @@ class MoveshelfApi(object):
 
         return data['createPatient']['patient']
 
-    def updateSubjectMetadataInfo(self, subject_id, info_to_save):
+    def updateSubjectMetadataInfo(self, subject_id, info_to_save, skip_validation: bool = False):
         """
         Update the metadata for an existing subject.
 
         Args:
             subject_id (str): The ID of the subject to update.
             info_to_save (dict): The metadata to save for the subject.
+            skip_validation (bool, optional): True to skip metadata validation, False otherwise. Defaults to False.
 
         Returns:
             bool: Whether the metadata update was successful.
         """
+        # Update subject metadata info:
+        # 1) if skip_validation == False, validate the imported metadata and check if there are validation errors
+        # 2) if there are no validation errors, we retrieve existing metadata and merge existing subject metadata 
+        # and imported metadata to update only empty fields (only for subject metadata, interventions are always
+        #  overridden), and update metadata. Otherwise we print validation errors and skip the update
+
+        my_imported_metadata = json.loads(info_to_save)
+        imported_intervention_metadata = my_imported_metadata.get("interventions", [])
+        imported_subject_metadata = my_imported_metadata
+        if "interventions" in imported_subject_metadata.keys():
+            imported_subject_metadata.pop("interventions")
+        
+        # Validate metadata only if skip_validation == False 
+        if not skip_validation:
+            has_subject_metadata_errors = False
+            has_intervention_errors = False
+            # First we validate subject metadata
+            subject_metadata_validation = self._dispatch_graphql(
+                '''
+                    query MetadataValidator(
+                        $importedMetadata: String!,
+                        $whichTabToValidate: String!,
+                        $sessionId: String,
+                        $subjectId: String
+                        ) {
+                        metadataValidator(
+                            importedMetadata: $importedMetadata,
+                            whichTabToValidate: $whichTabToValidate,
+                            sessionId: $sessionId,
+                            subjectId: $subjectId
+                        )
+                        {
+                        validationErrors
+                        }
+                        }
+                ''',
+                importedMetadata = json.dumps(imported_subject_metadata),
+                whichTabToValidate = "subjectMetadata",
+                subjectId = subject_id
+            )
+
+            if len(subject_metadata_validation["metadataValidator"]["validationErrors"]) > 0:
+                has_subject_metadata_errors = True
+                print("The following errors with subject metadata were found:")
+                for validation_error in subject_metadata_validation["metadataValidator"]["validationErrors"]:
+                    print(validation_error)
+
+            # Now we validate intervention metadata
+            intervention_metadata_validation = self._dispatch_graphql(
+                '''
+                    query MetadataValidator(
+                        $importedMetadata: String!,
+                        $whichTabToValidate: String!,
+                        $sessionId: String,
+                        $subjectId: String
+                        ) {
+                        metadataValidator(
+                            importedMetadata: $importedMetadata,
+                            whichTabToValidate: $whichTabToValidate,
+                            sessionId: $sessionId,
+                            subjectId: $subjectId
+                        )
+                        {
+                        validationErrors
+                        }
+                        }
+                ''',
+                importedMetadata = json.dumps(imported_intervention_metadata),
+                whichTabToValidate = "interventionMetadata",
+                subjectId = subject_id
+            )
+
+            if len(intervention_metadata_validation["metadataValidator"]["validationErrors"]) > 0:
+                has_intervention_errors = True
+                print("The following errors with intervention metadata were found:")
+                for validation_error in intervention_metadata_validation["metadataValidator"]["validationErrors"]:
+                    print(validation_error)
+
+            if has_subject_metadata_errors or has_intervention_errors:
+                return subject_metadata_validation["metadataValidator"]["validationErrors"].extend(intervention_metadata_validation["metadataValidator"]["validationErrors"])    
+        
+        # Retrieve existing metadata
+        data = self._dispatch_graphql(
+            '''
+            query getPatient($patientId: ID!) {
+                node(id: $patientId) {
+                    ... on Patient {
+                        id,
+                        metadata
+                    }
+                }
+            }
+            ''',
+            patientId=subject_id
+        )
+        
+        metadata_str = data['node'].get('metadata')
+        if metadata_str is not None:
+            existing_metadata = json.loads(metadata_str)
+        else:
+            existing_metadata = None
+
+        existing_intervention_metadata = existing_metadata.get("interventions", []) if existing_metadata else []
+        existing_subject_metadata = existing_metadata if existing_metadata else {}
+        if "interventions" in existing_subject_metadata.keys():
+            existing_subject_metadata.pop("interventions")
+
+        # Merge dictionaries
+        merged_subject_metadata = self._merge_metadata_dictionaries(existing_subject_metadata, imported_subject_metadata)
+        if len(imported_intervention_metadata) > 0:
+            merged_subject_metadata["interventions"] = imported_intervention_metadata
+
+        
         data = self._dispatch_graphql(
             '''
                 mutation updatePatientMutation($patientId: ID!, $metadata: JSONString) {
@@ -327,7 +441,7 @@ class MoveshelfApi(object):
                 }
             ''',
             patientId=subject_id,
-            metadata=info_to_save
+            metadata=json.dumps(merged_subject_metadata)
         )
 
         return data['updatePatient']['updated']
@@ -396,20 +510,84 @@ class MoveshelfApi(object):
 
         return data['createSession']['session']
     
-    def updateSessionMetadataInfo(self, session_id, session_name, session_metadata, session_date = None, previous_updated_at = None):
+    def updateSessionMetadataInfo(self, session_id: str, session_name: str, session_metadata: str, skip_validation: bool = False, session_date = None, previous_updated_at = None):
         """
         Update the metadata for an existing session.
 
         Args:
             session_id (str): The ID of the session to update.
             session_name (str): The new name for the session to update.
-            session_metadata (dict): The metadata to save for the session.
-            session_date (str): The new date for the session to update. If empty, skips update of session date. Defaults to None.
-            previous_updated_at (str): The previous updated in ISO format. If empty, force update. Defaults to None.
+            session_metadata (str): The metadata to save for the session.
+            skip_validation (bool, optional): True to skip metadata validation, False otherwise. Defaults to False.
+            session_date (str, optional): The new date for the session to update. If empty, skips update of session date. Defaults to None.
+            previous_updated_at (str, optional): The previous updated in ISO format. If empty, force update. Defaults to None.
 
         Returns:
             bool: Whether the metadata update was successful.
         """
+        # Update session metadata info:
+        # 1) if skip_validation == False, validate the imported metadata and check if there are validation errors
+        # 2) if there are no validation errors, retrieve existing metadata, merge existing metadata and imported 
+        # metadata to update only empty fields, and update metadata. Otherwise we print validation errors and skip the update
+
+        my_imported_metadata = json.loads(session_metadata).get("metadata", {})
+        
+        # Validate metadata only if skip_validation == False 
+        if not skip_validation:
+            data = self._dispatch_graphql(
+                '''
+                    query MetadataValidator(
+                        $importedMetadata: String!,
+                        $whichTabToValidate: String!,
+                        $sessionId: String,
+                        $subjectId: String
+                        ) {
+                        metadataValidator(
+                            importedMetadata: $importedMetadata,
+                            whichTabToValidate: $whichTabToValidate,
+                            sessionId: $sessionId,
+                            subjectId: $subjectId
+                        )
+                        {
+                        validationErrors
+                        }
+                        }
+                ''',
+                importedMetadata=json.dumps(my_imported_metadata),
+                whichTabToValidate="sessionMetadata",
+                sessionId=session_id
+            )
+
+            if len(data["metadataValidator"]["validationErrors"]) > 0:
+                print("The following errors with session metadata were found:")
+                for validation_error in data["metadataValidator"]["validationErrors"]:
+                    print(validation_error)
+                return data["metadataValidator"]["validationErrors"]
+
+        # Retrieve existing metadata
+        data = self._dispatch_graphql(
+            '''
+            query getSessionMetadata($sessionId: ID!) {
+                node(id: $sessionId) {
+                    ... on Session {
+                        id,
+                        metadata
+                    }
+                }
+            }
+            ''',
+            sessionId=session_id
+        )
+
+        metadata_str = data['node'].get('metadata')
+        metadata_obj = json.loads(metadata_str) if metadata_str is not None else {}
+        existing_metadata = metadata_obj.get("metadata", None)
+        
+        # Merge dictionaries and write into resulting dict
+        merged_metadata = self._merge_metadata_dictionaries(existing_metadata, my_imported_metadata)
+        metadata_obj["metadata"] = merged_metadata
+
+        # Update session metadata
         data = self._dispatch_graphql(
             '''
                 mutation updateSession($sessionId: ID!, $sessionName: String!, $sessionMetadata: JSONString, $sessionDate: String, $previousUpdatedAt: String) {
@@ -426,12 +604,68 @@ class MoveshelfApi(object):
             ''',
             sessionId=session_id,
             sessionName=session_name,
-            sessionMetadata=session_metadata,
+            sessionMetadata=json.dumps(metadata_obj),
             sessionDate=session_date,
             previousUpdatedAt=previous_updated_at
         )
 
         return data['updateSession']['updated']
+
+    @staticmethod
+    def _merge_metadata_dictionaries(existing_metadata: dict, imported_metadata: dict):
+        """
+        Merge existing metadata and imported metadata dictionaries. The objective is to
+        only update fields in the existing metadata that are empty
+        
+        Args:
+            existing_metadata (dict): Current metadata available on Moveshelf.
+            imported_metadata (dict): Metadata to be imported.
+
+        Returns:
+            dict: Merged dictionary.
+
+        """
+        # Merge dictionaries
+        if existing_metadata:
+            merged_metadata = existing_metadata.copy()  
+            for key, value in existing_metadata.items():
+                # Case 1: Empty string
+                if isinstance(value, str) and value == "":
+                    if key in imported_metadata:
+                        merged_metadata[key] = imported_metadata[key]
+
+                # Case 2: Dict with empty "value"
+                elif isinstance(value, dict):
+                    if value.get("value") in ["", []]: 
+                        if key in imported_metadata:
+                            merged_metadata[key] = imported_metadata[key]
+
+                # Case 3: List of dicts
+                elif isinstance(value, list):
+                    for i, entry in enumerate(value):
+                        if isinstance(entry, dict) and entry.get("value") in ["", []]:
+                            if "context" in entry:
+                                # Match by context
+                                if key in imported_metadata:
+                                    imported_entries = imported_metadata.get(key, [])
+                                    for imported_entry in imported_entries:
+                                        if (
+                                            isinstance(imported_entry, dict)
+                                            and imported_entry.get("context") == entry["context"]
+                                        ):
+                                            merged_metadata[key][i] = imported_entry
+                            else:
+                                if key in imported_metadata:
+                                    merged_metadata[key] = imported_metadata[key]
+            
+            # Now we add keys that were not in existing_metadata
+            for key, value in imported_metadata.items():
+                if key not in merged_metadata.keys():
+                    merged_metadata[key] = value
+        else:
+            merged_metadata = imported_metadata
+        
+        return merged_metadata
 
     def getProjectClips(self, project_id, limit, include_download_link=False):
         """
