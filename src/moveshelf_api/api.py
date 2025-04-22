@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import struct
+from datetime import datetime
 from os import path
 
 try:
@@ -323,7 +324,7 @@ class MoveshelfApi(object):
         """
         # Update subject metadata info:
         # 1) if skip_validation == False, validate the imported metadata and check if there are validation errors
-        # 2) if there are no validation errors, we retrieve existing metadata and merge existing subject metadata 
+        # 2) if there are no validation errors, we retrieve existing metadata and merge existing subject metadata
         # and imported metadata to update only empty fields (only for subject metadata, interventions are always
         #  overridden), and update metadata. Otherwise we print validation errors and skip the update
 
@@ -332,8 +333,8 @@ class MoveshelfApi(object):
         imported_subject_metadata = my_imported_metadata
         if "interventions" in imported_subject_metadata.keys():
             imported_subject_metadata.pop("interventions")
-        
-        # Validate metadata only if skip_validation == False 
+
+        # Validate metadata only if skip_validation == False
         if not skip_validation:
             has_subject_metadata_errors = False
             has_intervention_errors = False
@@ -400,8 +401,8 @@ class MoveshelfApi(object):
                     print(validation_error)
 
             if has_subject_metadata_errors or has_intervention_errors:
-                return subject_metadata_validation["metadataValidator"]["validationErrors"].extend(intervention_metadata_validation["metadataValidator"]["validationErrors"])    
-        
+                return subject_metadata_validation["metadataValidator"]["validationErrors"].extend(intervention_metadata_validation["metadataValidator"]["validationErrors"])
+
         # Retrieve existing metadata
         data = self._dispatch_graphql(
             '''
@@ -416,7 +417,7 @@ class MoveshelfApi(object):
             ''',
             patientId=subject_id
         )
-        
+
         metadata_str = data['node'].get('metadata')
         if metadata_str is not None:
             existing_metadata = json.loads(metadata_str)
@@ -433,7 +434,7 @@ class MoveshelfApi(object):
         if len(imported_intervention_metadata) > 0:
             merged_subject_metadata["interventions"] = imported_intervention_metadata
 
-        
+
         data = self._dispatch_graphql(
             '''
                 mutation updatePatientMutation($patientId: ID!, $metadata: JSONString) {
@@ -456,7 +457,7 @@ class MoveshelfApi(object):
             subject_id (str): The ID of the subject to retrieve.
 
         Returns:
-            dict: A dictionary containing subject details such as ID, name, metadata, 
+            dict: A dictionary containing subject details such as ID, name, metadata,
                   and associated project information (i.e., project ID, description, canEdit permission, and unlistedAccess permission).
         """
         data = self._dispatch_graphql(
@@ -494,6 +495,26 @@ class MoveshelfApi(object):
         Returns:
             dict: A dictionary containing the session's ID and project path.
         """
+
+        # Session date is set to current date by default
+        session_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Split the path and extract the session date
+        # Assuming path is always in format "/subjectName/YYYY-MM-DD/"
+        session_path_parts = session_path.strip("/").split("/")
+
+        # The date should be the last part if path follows the expected format
+        if len(session_path_parts) >= 2:
+            my_session = session_path_parts[1]
+
+            # Try to validate the date format
+            try:
+                datetime.strptime(my_session, "%Y-%m-%d")
+                session_date = my_session
+            except ValueError:
+                # If the date format is invalid, keep the default date
+                pass
+
         data = self._dispatch_graphql(
             '''
                 mutation createSessionMutation($projectId: String!, $projectPath: String!, $patientId: ID!) {
@@ -507,7 +528,8 @@ class MoveshelfApi(object):
             ''',
             projectId=project_id,
             projectPath=session_path,
-            patientId=subject_id
+            patientId=subject_id,
+            sessionDate=session_date
         )
 
         return data['createSession']['session']
