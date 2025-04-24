@@ -246,13 +246,14 @@ class MoveshelfApi(object):
 
         return creation_response['data']['id']
 
-    def updateClipMetadata(self, clip_id, metadata):
+    def updateClipMetadata(self, clip_id: str, metadata: dict, custom_options: str = None):
         """
         Update the metadata for an existing clip.
 
         Args:
             clip_id (str): The ID of the clip to update.
-            metadata (Metadata): The updated metadata for the clip.
+            metadata (dict): The updated metadata for the clip.
+            custom_options (str, optional): JSON string containing clip custom options. Defaults to None
 
         Returns:
             None
@@ -274,7 +275,8 @@ class MoveshelfApi(object):
             ''',
             input={
                 'id': clip_id,
-                'metadata': metadata
+                'metadata': metadata,
+                'customOptions': custom_options
             }
         )
         logging.info('Updated clip ID: %s', res['updateClip']['clip']['id'])
@@ -773,7 +775,7 @@ class MoveshelfApi(object):
             clip_id (str): The ID of the clip to retrieve.
 
         Returns:
-            dict: A dictionary containing the clip's ID, title, and description.
+            dict: A dictionary containing the clip's ID, title, description, and custom options.
         """
         data = self._dispatch_graphql(
             '''
@@ -782,7 +784,8 @@ class MoveshelfApi(object):
                 ... on MocapClip {
                 id,
                 title,
-                description
+                description,
+                customOptions
                 }
             }
             }
