@@ -483,7 +483,9 @@ class MoveshelfApi(object):
 
         return data['node']
 
-    def createSession(self, project_id, session_path, subject_id, session_date: str | None = None):
+    def createSession(
+        self, project_id, session_path, subject_id, session_date: str | None = None
+    ):
         """
         Create a session for a specified subject within a project.
 
@@ -527,15 +529,10 @@ class MoveshelfApi(object):
                     # If the date format is invalid, keep it None
                     pass
 
-        # If session_date is still None, set it to the current date
-        if not create_session_date:
-            # Session date is set to current date by default
-            create_session_date = datetime.now().strftime("%Y-%m-%d")
-
         data = self._dispatch_graphql(
             """
-                mutation createSessionMutation($projectId: String!, $projectPath: String!, $patientId: ID!) {
-                    createSession(projectId: $projectId, projectPath: $projectPath, patientId: $patientId) {
+                mutation createSessionMutation($projectId: String!, $projectPath: String!, $patientId: ID!, $sessionDate: String) {
+                    createSession(projectId: $projectId, projectPath: $projectPath, patientId: $patientId, sessionDate: $sessionDate) {
                         session {
                             id
                             projectPath
@@ -549,8 +546,8 @@ class MoveshelfApi(object):
             sessionDate=create_session_date,
         )
 
-        return data['createSession']['session']
-    
+        return data["createSession"]["session"]
+
     def updateSessionMetadataInfo(self, session_id: str, session_name: str, session_metadata: str, skip_validation: bool = False, session_date = None, previous_updated_at = None):
         """
         Update the metadata for an existing session.
