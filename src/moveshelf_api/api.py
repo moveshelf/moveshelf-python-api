@@ -508,8 +508,9 @@ class MoveshelfApi(object):
                 datetime.strptime(session_date, "%Y-%m-%d")
                 create_session_date = session_date
             except ValueError:
-                # If the date format is invalid, keep it None
-                pass
+                # If the date format is invalid, raise an error and return
+                print("Invalid date format. Please use YYYY-MM-DD.")
+                return
 
         # If session_date is not provided or is invalid, extract it from the session_path
         if not create_session_date:
