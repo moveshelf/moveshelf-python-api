@@ -483,7 +483,7 @@ class MoveshelfApi(object):
 
         return data['node']
 
-    def createSession(self, project_id, session_path, subject_id):
+    def createSession(self, project_id, session_path, subject_id, session_date: str | None = None):
         """
         Create a session for a specified subject within a project.
 
@@ -491,32 +491,49 @@ class MoveshelfApi(object):
             project_id (str): The ID of the project where the session will be created.
             session_path (str): The path to associate with the session.
             subject_id (str): The ID of the subject for whom the session is created.
+            session_date (str, optional): The date of the session in `YYYY-MM-DD` format.
 
         Returns:
             dict: A dictionary containing the session's ID and project path.
         """
 
-        # Session date is set to current date by default
-        session_date = datetime.now().strftime("%Y-%m-%d")
+        create_session_date = None
 
-        # Split the path and extract the session date
-        # Assuming path is always in format "/subjectName/YYYY-MM-DD/"
-        session_path_parts = session_path.strip("/").split("/")
-
-        # The date should be the last part if path follows the expected format
-        if len(session_path_parts) >= 2:
-            my_session = session_path_parts[1]
-
-            # Try to validate the date format
+        # Check if session_date is provided
+        if session_date:
+            # Validate the date format
             try:
-                datetime.strptime(my_session, "%Y-%m-%d")
-                session_date = my_session
+                datetime.strptime(session_date, "%Y-%m-%d")
+                create_session_date = session_date
             except ValueError:
-                # If the date format is invalid, keep the default date
+                # If the date format is invalid, keep it None
                 pass
 
+        # If session_date is not provided or is invalid, extract it from the session_path
+        if not create_session_date:
+            # Split the path and extract the session date
+            # Assuming path is always in format "/subjectName/YYYY-MM-DD/"
+            session_path_parts = session_path.strip("/").split("/")
+
+            # The date should be the last part if path follows the expected format
+            if len(session_path_parts) >= 2:
+                my_session = session_path_parts[1]
+
+                # Try to validate the date format
+                try:
+                    datetime.strptime(my_session, "%Y-%m-%d")
+                    create_session_date = my_session
+                except ValueError:
+                    # If the date format is invalid, keep it None
+                    pass
+
+        # If session_date is still None, set it to the current date
+        if not create_session_date:
+            # Session date is set to current date by default
+            create_session_date = datetime.now().strftime("%Y-%m-%d")
+
         data = self._dispatch_graphql(
-            '''
+            """
                 mutation createSessionMutation($projectId: String!, $projectPath: String!, $patientId: ID!) {
                     createSession(projectId: $projectId, projectPath: $projectPath, patientId: $patientId) {
                         session {
@@ -525,11 +542,11 @@ class MoveshelfApi(object):
                         }
                     }
                 }
-            ''',
+            """,
             projectId=project_id,
             projectPath=session_path,
             patientId=subject_id,
-            sessionDate=session_date
+            sessionDate=create_session_date,
         )
 
         return data['createSession']['session']
