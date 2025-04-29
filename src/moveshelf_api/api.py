@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import struct
+from datetime import datetime
 from os import path
 
 try:
@@ -323,7 +324,7 @@ class MoveshelfApi(object):
         """
         # Update subject metadata info:
         # 1) if skip_validation == False, validate the imported metadata and check if there are validation errors
-        # 2) if there are no validation errors, we retrieve existing metadata and merge existing subject metadata 
+        # 2) if there are no validation errors, we retrieve existing metadata and merge existing subject metadata
         # and imported metadata to update only empty fields (only for subject metadata, interventions are always
         #  overridden), and update metadata. Otherwise we print validation errors and skip the update
 
@@ -332,8 +333,8 @@ class MoveshelfApi(object):
         imported_subject_metadata = my_imported_metadata
         if "interventions" in imported_subject_metadata.keys():
             imported_subject_metadata.pop("interventions")
-        
-        # Validate metadata only if skip_validation == False 
+
+        # Validate metadata only if skip_validation == False
         if not skip_validation:
             has_subject_metadata_errors = False
             has_intervention_errors = False
@@ -400,8 +401,8 @@ class MoveshelfApi(object):
                     print(validation_error)
 
             if has_subject_metadata_errors or has_intervention_errors:
-                return subject_metadata_validation["metadataValidator"]["validationErrors"].extend(intervention_metadata_validation["metadataValidator"]["validationErrors"])    
-        
+                return subject_metadata_validation["metadataValidator"]["validationErrors"].extend(intervention_metadata_validation["metadataValidator"]["validationErrors"])
+
         # Retrieve existing metadata
         data = self._dispatch_graphql(
             '''
@@ -416,7 +417,7 @@ class MoveshelfApi(object):
             ''',
             patientId=subject_id
         )
-        
+
         metadata_str = data['node'].get('metadata')
         if metadata_str is not None:
             existing_metadata = json.loads(metadata_str)
@@ -433,7 +434,7 @@ class MoveshelfApi(object):
         if len(imported_intervention_metadata) > 0:
             merged_subject_metadata["interventions"] = imported_intervention_metadata
 
-        
+
         data = self._dispatch_graphql(
             '''
                 mutation updatePatientMutation($patientId: ID!, $metadata: JSONString) {
@@ -456,7 +457,7 @@ class MoveshelfApi(object):
             subject_id (str): The ID of the subject to retrieve.
 
         Returns:
-            dict: A dictionary containing subject details such as ID, name, metadata, 
+            dict: A dictionary containing subject details such as ID, name, metadata,
                   and associated project information (i.e., project ID, description, canEdit permission, and unlistedAccess permission).
         """
         data = self._dispatch_graphql(
@@ -482,7 +483,9 @@ class MoveshelfApi(object):
 
         return data['node']
 
-    def createSession(self, project_id, session_path, subject_id):
+    def createSession(
+        self, project_id, session_path, subject_id, session_date: str | None = None
+    ):
         """
         Create a session for a specified subject within a project.
 
@@ -490,28 +493,62 @@ class MoveshelfApi(object):
             project_id (str): The ID of the project where the session will be created.
             session_path (str): The path to associate with the session.
             subject_id (str): The ID of the subject for whom the session is created.
+            session_date (str, optional): The date of the session in `YYYY-MM-DD` format.
 
         Returns:
             dict: A dictionary containing the session's ID and project path.
         """
+
+        create_session_date = None
+
+        # Check if session_date is provided
+        if session_date:
+            # Validate the date format
+            try:
+                datetime.strptime(session_date, "%Y-%m-%d")
+                create_session_date = session_date
+            except ValueError:
+                # If the date format is invalid, raise an error and return
+                print("Invalid date format. Please use YYYY-MM-DD.")
+                return
+
+        # If session_date is not provided or is invalid, extract it from the session_path
+        if not create_session_date:
+            # Split the path and extract the session date
+            # Assuming path is always in format "/subjectName/YYYY-MM-DD/"
+            session_path_parts = session_path.strip("/").split("/")
+
+            # The date should be the last part if path follows the expected format
+            if len(session_path_parts) >= 2:
+                my_session = session_path_parts[1]
+
+                # Try to validate the date format
+                try:
+                    datetime.strptime(my_session, "%Y-%m-%d")
+                    create_session_date = my_session
+                except ValueError:
+                    # If the date format is invalid, keep it None
+                    pass
+
         data = self._dispatch_graphql(
-            '''
-                mutation createSessionMutation($projectId: String!, $projectPath: String!, $patientId: ID!) {
-                    createSession(projectId: $projectId, projectPath: $projectPath, patientId: $patientId) {
+            """
+                mutation createSessionMutation($projectId: String!, $projectPath: String!, $patientId: ID!, $sessionDate: String) {
+                    createSession(projectId: $projectId, projectPath: $projectPath, patientId: $patientId, sessionDate: $sessionDate) {
                         session {
                             id
                             projectPath
                         }
                     }
                 }
-            ''',
+            """,
             projectId=project_id,
             projectPath=session_path,
-            patientId=subject_id
+            patientId=subject_id,
+            sessionDate=create_session_date,
         )
 
-        return data['createSession']['session']
-    
+        return data["createSession"]["session"]
+
     def updateSessionMetadataInfo(self, session_id: str, session_name: str, session_metadata: str, skip_validation: bool = False, session_date = None, previous_updated_at = None):
         """
         Update the metadata for an existing session.
