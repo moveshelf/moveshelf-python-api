@@ -21,7 +21,8 @@ except ImportError:
     print('Please install enum34 package')
     raise
 
-import requests
+import urllib3
+from urllib3.util import Retry
 import six
 from crcmod.predefined import mkPredefinedCrcFun
 from mypy_extensions import TypedDict
@@ -93,6 +94,7 @@ class MoveshelfApi(object):
         api_url (str): The API endpoint URL.
         _auth_token (BearerTokenAuth): Authentication token for API requests.
         _crc32c (function): CRC32C checksum function for file validation.
+        http (urllib3.PoolManager): HTTP client for making requests.
     """
 
     def __init__(self, api_key_file='mvshlf-api-key.json', api_url='https://api.moveshelf.com/graphql'):
@@ -115,6 +117,25 @@ class MoveshelfApi(object):
         with open(api_key_file, 'r') as key_file:
             data = json.load(key_file)
             self._auth_token = BearerTokenAuth(data['secretKey'])
+
+        # Configure retry strategy for urllib3
+        retry_strategy = Retry(
+            total=3,  # Maximum 3 total retries
+            status_forcelist=[500, 502, 503, 504],
+            backoff_factor=5,  # With 5: ~5s, 10s, 20s (to get 10-60s range)
+            backoff_max=60,  # Maximum 60 seconds wait time
+            allowed_methods=["PUT", "POST"],  # Only methods used by this API
+            raise_on_status=True,  # Raise exception after retry exhaustion
+            respect_retry_after_header=True,  # Respect server's Retry-After header
+        )
+
+        # Initialize urllib3 PoolManager with retry strategy
+        self.http = urllib3.PoolManager(
+            retries=retry_strategy,
+            timeout=urllib3.Timeout(connect=10, read=60),
+            cert_reqs='CERT_REQUIRED',
+            ca_certs=urllib3.util.ssl_.where()
+        )
 
     def getProjectDatasets(self, project_id):
         """
@@ -185,39 +206,64 @@ class MoveshelfApi(object):
 
         return creation_response['mocapClip']['id']
 
-    def uploadFile(self, file_path, project, metadata=Metadata()):
+    def uploadFile(self, file_path, project, metadata=None):
         """
         Upload a file to a specified project.
 
         Args:
             file_path (str): The local path to the file being uploaded.
             project (str): The project ID where the file will be uploaded.
-            metadata (Metadata): Metadata for the file. Defaults to an empty Metadata dictionary.
+            metadata (dict): Metadata for the file. Defaults to an empty dict.
 
         Returns:
             str: The ID of the created clip.
         """
-        logger.info('Uploading %s', file_path)
+        if metadata is None:
+            metadata = Metadata()
 
-        metadata['title'] = metadata.get('title', path.basename(file_path))
-        metadata['allowDownload'] = metadata.get('allowDownload', False)
-        metadata['allowUnlistedAccess'] = metadata.get('allowUnlistedAccess', False)
+        logger.info("Uploading %s", file_path)
 
-        if metadata.get('startTimecode'):
-            self._validateAndUpdateTimecode(metadata['startTimecode'])
+        metadata["title"] = metadata.get("title", path.basename(file_path))
+        metadata["allowDownload"] = metadata.get("allowDownload", False)
+        metadata["allowUnlistedAccess"] = metadata.get("allowUnlistedAccess", False)
 
-        creation_response = self._createClip(project, {
-            'clientId': file_path,
-            'crc32c': self._calculateCrc32c(file_path),
-            'filename': path.basename(file_path),
-            'metadata': metadata
-        })
-        logging.info('Created clip ID: %s', creation_response['mocapClip']['id'])
+        if metadata.get("startTimecode"):
+            self._validateAndUpdateTimecode(metadata["startTimecode"])
 
-        with open(file_path, 'rb') as fp:
-            requests.put(creation_response['uploadUrl'], data=fp)
+        creation_response = self._createClip(
+            project,
+            {
+                "clientId": file_path,
+                "crc32c": self._calculateCrc32c(file_path),
+                "filename": path.basename(file_path),
+                "metadata": metadata,
+            },
+        )
+        logging.info("Created clip ID: %s", creation_response["mocapClip"]["id"])
 
-        return creation_response['mocapClip']['id']
+        # Upload file using urllib3
+        with open(file_path, "rb") as fp:
+            file_data = fp.read()
+
+        try:
+            response = self.http.request(
+                "PUT",
+                creation_response["uploadUrl"],
+                body=file_data,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            if response.status >= 400:
+                raise urllib3.exceptions.HTTPError(
+                    f"Upload failed with status {response.status}: {response.reason}"
+                )
+        except urllib3.exceptions.MaxRetryError as e:
+            logger.error(f"All retries exhausted during file upload: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error during file upload: {e}")
+            raise
+
+        return creation_response["mocapClip"]["id"]
 
     def uploadAdditionalData(self, file_path, clipId, dataType, filename):
         """
@@ -232,20 +278,42 @@ class MoveshelfApi(object):
         Returns:
             str: The ID of the uploaded data.
         """
-        logger.info('Uploading %s', file_path)
+        logger.info("Uploading %s", file_path)
 
-        creation_response = self._createAdditionalData(clipId, {
-            'clientId': file_path,
-            'crc32c': self._calculateCrc32c(file_path),
-            'filename': filename,
-            'dataType': dataType
-        })
-        logging.info('Created clip ID: %s', creation_response['data']['id'])
+        creation_response = self._createAdditionalData(
+            clipId,
+            {
+                "clientId": file_path,
+                "crc32c": self._calculateCrc32c(file_path),
+                "filename": filename,
+                "dataType": dataType,
+            },
+        )
+        logging.info("Created additional data ID: %s", creation_response["data"]["id"])
 
-        with open(file_path, 'rb') as fp:
-            requests.put(creation_response['uploadUrl'], data=fp)
+        # Upload file using urllib3
+        with open(file_path, "rb") as fp:
+            file_data = fp.read()
 
-        return creation_response['data']['id']
+        try:
+            response = self.http.request(
+                "PUT",
+                creation_response["uploadUrl"],
+                body=file_data,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+            if response.status >= 400:
+                raise urllib3.exceptions.HTTPError(
+                    f"Upload failed with status {response.status}: {response.reason}"
+                )
+        except urllib3.exceptions.MaxRetryError as e:
+            logger.error(f"All retries exhausted during additional data upload: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error during additional data upload: {e}")
+            raise
+
+        return creation_response["data"]["id"]
 
     def updateClipMetadata(self, clip_id: str, metadata: dict, custom_options: str = None):
         """
@@ -1199,29 +1267,55 @@ class MoveshelfApi(object):
             **kwargs: Variables to be passed into the GraphQL query.
 
         Raises:
-            requests.exceptions.RequestException: If the HTTP request fails.
+            urllib3.exceptions.HTTPError: If the HTTP request fails.
             GraphQlException: If the GraphQL response contains errors.
 
         Returns:
             dict: The `data` field from the GraphQL response, containing the requested information.
         """
-        payload = {
-            'query': query,
-            'variables': kwargs
+        payload = {"query": query, "variables": kwargs}
+
+        # Prepare headers with authentication
+        headers = {
+            "Content-Type": "application/json",
+            **self._auth_token.get_auth_header(),
         }
-        response = requests.post(self.api_url, json=payload, auth=self._auth_token)
-        response.raise_for_status()
 
-        json_data = response.json()
-        if 'errors' in json_data:
-            raise GraphQlException(json_data['errors'])
+        try:
+            response = self.http.request(
+                "POST",
+                self.api_url,
+                body=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+            )
 
-        return json_data['data']
+            if response.status >= 400:
+                raise urllib3.exceptions.HTTPError(
+                    f"GraphQL request failed with status {response.status}: {response.reason}"
+                )
+
+            json_data = json.loads(response.data.decode("utf-8"))
+
+            if "errors" in json_data:
+                raise GraphQlException(json_data["errors"])
+
+            return json_data["data"]
+
+        except urllib3.exceptions.MaxRetryError as e:
+            logger.error(f"All retries exhausted for GraphQL request: {e}")
+            raise
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error during GraphQL request: {e}")
+            raise
 
 
-class BearerTokenAuth(requests.auth.AuthBase):
+class BearerTokenAuth:
     """
     A custom authentication class for using Bearer tokens with HTTP requests.
+    Adapted for urllib3 from the original requests-based version.
 
     Attributes:
         _auth (str): The formatted Bearer token string.
@@ -1236,18 +1330,15 @@ class BearerTokenAuth(requests.auth.AuthBase):
         """
         self._auth = 'Bearer {}'.format(token)
 
-    def __call__(self, request):
+    def get_auth_header(self):
         """
-        Modify the request to include the Bearer token in the Authorization header.
-
-        Args:
-            request (requests.PreparedRequest): The HTTP request object.
+        Get the Authorization header dictionary for urllib3 requests.
 
         Returns:
-            requests.PreparedRequest: The modified HTTP request object.
+            dict: Dictionary containing the Authorization header.
         """
-        request.headers['Authorization'] = self._auth
-        return request
+        return {'Authorization': self._auth}
+
 
 
 class GraphQlException(Exception):
