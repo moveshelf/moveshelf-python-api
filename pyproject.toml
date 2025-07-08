@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "moveshelf_api"
-version = "1.4.0"
+version = "1.4.1"
 authors = [
   { name="Moveshelf", email="info@moveshelf.com" },
 ]
@@ -12,10 +12,10 @@ description = "Public package including the Python API"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "urllib3",
-    "six",
-    "crcmod",
-    "mypy_extensions",
+    "urllib3~=2.5",
+    "six~=1.17",
+    "crcmod~=1.7",
+    "mypy_extensions~=1.1",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
