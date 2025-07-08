@@ -14,12 +14,7 @@ import re
 import struct
 from datetime import datetime
 from os import path
-
-try:
-    import enum
-except ImportError:
-    print('Please install enum34 package')
-    raise
+import enum
 
 import urllib3
 from urllib3.util import Retry
