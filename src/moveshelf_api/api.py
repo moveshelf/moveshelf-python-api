@@ -132,9 +132,7 @@ class MoveshelfApi(object):
         # Initialize urllib3 PoolManager with retry strategy
         self.http = urllib3.PoolManager(
             retries=retry_strategy,
-            timeout=urllib3.Timeout(connect=10, read=60),
-            cert_reqs='CERT_REQUIRED',
-            ca_certs=urllib3.util.ssl_.where()
+            timeout=urllib3.Timeout(connect=10, read=60)
         )
 
     def getProjectDatasets(self, project_id):
