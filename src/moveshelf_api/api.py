@@ -15,12 +15,12 @@ import struct
 from datetime import datetime
 from os import path
 import enum
+from typing import TypedDict
 
 import urllib3
 from urllib3.util import Retry
 import six
 from crcmod.predefined import mkPredefinedCrcFun
-from mypy_extensions import TypedDict
 
 logger = logging.getLogger('moveshelf-api')
 
@@ -115,10 +115,10 @@ class MoveshelfApi(object):
 
         # Configure retry strategy for urllib3
         retry_strategy = Retry(
-            total=3,  # Maximum 3 total retries
-            status_forcelist=[500, 502, 503, 504],
-            backoff_factor=5,  # With 5: ~5s, 10s, 20s (to get 10-60s range)
-            backoff_max=60,  # Maximum 60 seconds wait time
+            total=5,  # Maximum 5 total retries
+            status_forcelist=[404, 500, 502, 503, 504],
+            backoff_factor=5,  # With 5: ~5s, 10s, 20s (to get 10-120s range)
+            backoff_max=120,  # Maximum 60 seconds wait time
             allowed_methods=["PUT", "POST"],  # Only methods used by this API
             raise_on_status=True,  # Raise exception after retry exhaustion
             respect_retry_after_header=True,  # Respect server's Retry-After header
