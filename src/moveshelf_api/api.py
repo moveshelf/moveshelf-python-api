@@ -12,8 +12,9 @@ import json
 import logging
 import re
 import struct
-from datetime import datetime
+from datetime import datetime, timezone
 from os import path
+import time
 import enum
 from typing import TypedDict
 
@@ -198,6 +199,58 @@ class MoveshelfApi(object):
         logging.info('Created clip ID: %s', creation_response['mocapClip']['id'])
 
         return creation_response['mocapClip']['id']
+
+    def isCurrentVersionUploaded(self, file_path: str, clip_id: str) -> bool:
+        """
+        Check if the current version of a file is already uploaded for a specific clip.
+
+        Args:
+            file_path: The local path to the file being checked.
+            clip_id: The ID of the clip to check against.
+
+        Returns:
+            True if the current version is already uploaded, False otherwise.
+
+        Raises:
+            FileNotFoundError: If the local file doesn't exist.
+            ValueError: If no additional data found for the clip with the file name.
+        """
+        # Check if file exists before proceeding
+        if not path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        # Get file modification time in UTC
+        last_modified_timestamp = path.getmtime(file_path)
+        last_modified_datetime = datetime.fromtimestamp(
+            last_modified_timestamp, tz=timezone.utc
+        )
+        file_name = path.basename(file_path)
+
+        # Retrieve additional data for the clip
+        additional_data_list = self.getAdditionalData(clip_id)
+
+        # Find matching file data
+        matching_data = next(
+            (
+                data
+                for data in additional_data_list
+                if data["originalFileName"] == file_name
+            ),
+            None,
+        )
+
+        if not matching_data:
+            raise ValueError(
+                f"No additional data found for clip {clip_id} with file name {file_name}. "
+                "Please upload the file first."
+            )
+
+        # Convert generation timestamp to datetime (assuming microseconds)
+        uploaded_timestamp = int(matching_data["generation"]) / 1_000_000
+        uploaded_datetime = datetime.fromtimestamp(uploaded_timestamp, tz=timezone.utc)
+
+        # Return True if uploaded version is newer or equal to local file
+        return last_modified_datetime <= uploaded_datetime
 
     def uploadFile(self, file_path, project, metadata=None):
         """
@@ -855,6 +908,7 @@ class MoveshelfApi(object):
                     originalFileName
                     previewDataUri
                     originalDataDownloadUri
+                    generation
                 }
                 }
             }
