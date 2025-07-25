@@ -711,6 +711,182 @@ class MoveshelfApi(object):
 
         return data['updateSession']['updated']
 
+    def deleteSubject(self, subject_id: str):
+        """
+        Delete a subject from the system.
+
+        Args:
+            subject_id (str): The ID of the subject to delete.
+
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        data = self._dispatch_graphql(
+            """
+            mutation deletePatient($patientId: ID!) {
+                deletePatient(patientId: $patientId) {
+                    deleted
+                }
+            }
+            """,
+            patientId=subject_id,
+        )
+        return data["deletePatient"]["deleted"]
+
+    def deleteSubjects(self, subject_ids: list[str]):
+        """
+        Delete multiple subjects from the system.
+
+        Args:
+            subject_ids (list): List of subject IDs to delete.
+
+        Returns:
+            dict: Dictionary mapping subject IDs to their deletion status (True/False).
+        """
+        results = {}
+        for subject_id in subject_ids:
+            try:
+                results[subject_id] = self.deleteSubject(subject_id)
+                logger.info(f"Successfully deleted subject: {subject_id}")
+            except Exception as e:
+                logger.error(f"Failed to delete subject {subject_id}: {e}")
+                results[subject_id] = False
+        return results
+
+    def deleteSession(self, session_id: str):
+        """
+        Delete a session from the system.
+
+        Args:
+            session_id (str): The ID of the session to delete.
+
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        data = self._dispatch_graphql(
+            """
+            mutation deleteSession($sessionId: ID!) {
+                deleteSession(sessionId: $sessionId) {
+                    deleted
+                }
+            }
+            """,
+            sessionId=session_id,
+        )
+        return data["deleteSession"]["deleted"]
+
+    def deleteClip(self, clip_id: str):
+        """
+        Delete a trial (clip) from the system.
+
+        Args:
+            clip_id (str): The ID of the clip/trial to delete.
+
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        data = self._dispatch_graphql(
+            """
+            mutation deleteClip($clipId: String!) {
+                deleteClip(clipId: $clipId) {
+                    ok
+                }
+            }
+            """,
+            clipId=clip_id,
+        )
+        return data["deleteClip"]["ok"]
+
+    def deleteAdditionalData(self, additional_data_id: str):
+        """
+        Delete a condition (additional data) from the system.
+
+        Args:
+            additional_data_id (str): The ID of the additional data/condition to delete.
+
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        data = self._dispatch_graphql(
+            """
+            mutation deleteAdditionalData($id: ID!) {
+                deleteAdditionalData(id: $id) {
+                    ok
+                }
+            }
+            """,
+            id=additional_data_id,
+        )
+        return data["deleteAdditionalData"]["ok"]
+
+    def deleteClipByCondition(self, session_id: str, condition_name: str):
+        """
+        Delete all trials within a given condition for a specific session.
+
+        Args:
+            session_id (str): The ID of the session containing the trials.
+            condition_name (str): The name/identifier of the condition.
+
+        Returns:
+            dict: Dictionary containing deletion results with keys:
+                  - 'deleted_count': Number of trials successfully deleted
+                  - 'failed_count': Number of trials that failed to delete
+                  - 'details': List of dictionaries with clip_id and deletion status
+        """
+        # Get session details to access clips
+        session_data = self.getSessionById(session_id)
+        clips = session_data.get("clips", [])
+
+        # Filter clips that belong to the specified condition
+        # This assumes the condition is identified by the projectPath or title containing the condition name
+        condition_clips = []
+        for clip in clips:
+            clip_path = clip.get("projectPath", "")
+            clip_title = clip.get("title", "")
+            if (
+                condition_name.lower() in clip_path.lower()
+                or condition_name.lower() in clip_title.lower()
+            ):
+                condition_clips.append(clip)
+
+        # Delete each trial in the condition
+        results = {"deleted_count": 0, "failed_count": 0, "details": []}
+
+        for clip in condition_clips:
+            clip_id = clip["id"]
+            try:
+                deletion_success = self.deleteClip(clip_id)
+                if deletion_success:
+                    results["deleted_count"] += 1
+                    logger.info(f"Successfully deleted trial: {clip_id}")
+                else:
+                    results["failed_count"] += 1
+                    logger.warning(f"Failed to delete trial: {clip_id}")
+
+                results["details"].append(
+                    {
+                        "clip_id": clip_id,
+                        "title": clip.get("title", ""),
+                        "deleted": deletion_success,
+                    }
+                )
+            except Exception as e:
+                results["failed_count"] += 1
+                logger.error(f"Error deleting trial {clip_id}: {e}")
+                results["details"].append(
+                    {
+                        "clip_id": clip_id,
+                        "title": clip.get("title", ""),
+                        "deleted": False,
+                        "error": str(e),
+                    }
+                )
+
+        logger.info(
+            f'Condition deletion complete: {results["deleted_count"]} deleted, {results["failed_count"]} failed'
+        )
+        return results
+
     @staticmethod
     def _merge_metadata_dictionaries(existing_metadata: dict, imported_metadata: dict):
         """
