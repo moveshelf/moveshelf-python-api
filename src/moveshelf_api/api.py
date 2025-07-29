@@ -217,6 +217,12 @@ class MoveshelfApi(object):
         if not path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
+        # Check file size (max 10 MB)
+        max_size_bytes = 10 * 1024 * 1024
+        file_size = path.getsize(file_path)
+        if file_size > max_size_bytes:
+            raise ValueError(f"File size exceeds 10 MB limit: {file_size} bytes")
+
         # Extract just the filename from the full path for comparison
         file_name = path.basename(file_path)
 
