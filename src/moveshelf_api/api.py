@@ -210,7 +210,7 @@ class MoveshelfApi(object):
 
         Raises:
             FileNotFoundError: If the local file doesn't exist.
-            ValueError: If no additional data found for the clip with the file name.
+            ValueError: If file exceeds 10 MB limit
             urllib3.exceptions.HTTPError: If download from GCS fails.
         """
         # Validate that the local file exists before attempting any operations
@@ -242,10 +242,8 @@ class MoveshelfApi(object):
 
         # If no matching file is found in the clip's additional data, the file hasn't been uploaded
         if not matching_data:
-            raise ValueError(
-                f"No additional data found for clip {clip_id} with file name {file_name}. "
-                "Please upload the file first."
-            )
+            # If no version available, return no current version
+            return False
 
         # Extract the download URL from the matching data entry
         download_url = matching_data.get("originalDataDownloadUri")
