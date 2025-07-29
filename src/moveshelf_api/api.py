@@ -7,11 +7,9 @@ Dependencies:
     - Third-party modules: `requests`, `six`, `enum` (optional), `crcmod`, `mypy_extensions`
 """
 
-import base64
 import json
 import logging
 import re
-import struct
 from datetime import datetime
 from os import path
 import enum
@@ -19,8 +17,9 @@ from typing import TypedDict
 
 import urllib3
 from urllib3.util import Retry
-import six
-from crcmod.predefined import mkPredefinedCrcFun
+from urllib3.response import HTTPResponse
+
+from .utils.hash import calculate_file_md5, calculate_stream_md5, calculate_file_crc32c
 
 logger = logging.getLogger('moveshelf-api')
 
@@ -88,7 +87,6 @@ class MoveshelfApi(object):
     Attributes:
         api_url (str): The API endpoint URL.
         _auth_token (BearerTokenAuth): Authentication token for API requests.
-        _crc32c (function): CRC32C checksum function for file validation.
         http (urllib3.PoolManager): HTTP client for making requests.
     """
 
@@ -103,7 +101,6 @@ class MoveshelfApi(object):
         Raises:
             ValueError: If the API key file is not found or invalid.
         """
-        self._crc32c = mkPredefinedCrcFun('crc32c')
         self.api_url = api_url
 
         if not path.isfile(api_key_file):
@@ -199,6 +196,94 @@ class MoveshelfApi(object):
 
         return creation_response['mocapClip']['id']
 
+    def isCurrentVersionUploaded(self, file_path: str, clip_id: str) -> bool:
+        """
+        Check if the current version of a file is already uploaded by comparing MD5 hashes
+        between the local file and the downloaded blob from GCS.
+
+        Args:
+            file_path: The local path to the file being checked.
+            clip_id: The ID of the clip to check against.
+
+        Returns:
+            True if the current version is already uploaded (MD5 hashes match), False otherwise.
+
+        Raises:
+            FileNotFoundError: If the local file doesn't exist.
+            ValueError: If file exceeds 10 MB limit
+            urllib3.exceptions.HTTPError: If download from GCS fails.
+        """
+        # Validate that the local file exists before attempting any operations
+        if not path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        # Check file size (max 10 MB)
+        max_size_bytes = 10 * 1024 * 1024
+        file_size = path.getsize(file_path)
+        if file_size > max_size_bytes:
+            raise ValueError(f"File size exceeds 10 MB limit: {file_size} bytes")
+
+        # Extract just the filename from the full path for comparison
+        file_name = path.basename(file_path)
+
+        # Fetch all additional data associated with this clip from the remote service
+        additional_data_list = self.getAdditionalData(clip_id)
+
+        # Search through the additional data to find an entry matching our filename
+        # This ensures we're comparing against the correct remote file
+        matching_data = next(
+            (
+                data
+                for data in additional_data_list
+                if data["originalFileName"] == file_name
+            ),
+            None,
+        )
+
+        # If no matching file is found in the clip's additional data, the file hasn't been uploaded
+        if not matching_data:
+            # If no version available, return no current version
+            return False
+
+        # Extract the download URL from the matching data entry
+        download_url = matching_data.get("originalDataDownloadUri")
+        if not download_url:
+            raise ValueError(
+                f"No download URL available for file {file_name} in clip {clip_id}"
+            )
+
+        # Calculate MD5 hash of the local file for comparison
+        local_md5 = calculate_file_md5(file_path)
+
+        # Initialize response variable for proper cleanup in finally block
+        response : HTTPResponse | None = None
+        try:
+            # Stream download the remote file to avoid loading large files into memory
+            response = self.http.request("GET", download_url, preload_content=False)
+
+            # Check for HTTP errors in the download response
+            if response.status >= 400:
+                raise urllib3.exceptions.HTTPError(
+                    f"Failed to download file from GCS with status {response.status}: {response.reason}"
+                )
+
+            # Calculate MD5 hash of the remote file stream
+            remote_md5 = calculate_stream_md5(response)
+
+        except urllib3.exceptions.MaxRetryError as e:
+            logger.error(f"All retries exhausted during file download: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error during file download: {e}")
+            raise
+        finally:
+            # Ensure the HTTP connection is properly released regardless of success or failure
+            if response:
+                response.release_conn()
+
+        # Return True if hashes match (file versions are identical), False otherwise
+        return local_md5 == remote_md5
+
     def uploadFile(self, file_path, project, metadata=None):
         """
         Upload a file to a specified project.
@@ -227,7 +312,7 @@ class MoveshelfApi(object):
             project,
             {
                 "clientId": file_path,
-                "crc32c": self._calculateCrc32c(file_path),
+                "crc32c": calculate_file_crc32c(file_path),
                 "filename": path.basename(file_path),
                 "metadata": metadata,
             },
@@ -277,7 +362,7 @@ class MoveshelfApi(object):
             clipId,
             {
                 "clientId": file_path,
-                "crc32c": self._calculateCrc32c(file_path),
+                "crc32c": calculate_file_crc32c(file_path),
                 "filename": filename,
                 "dataType": dataType,
             },
@@ -627,12 +712,12 @@ class MoveshelfApi(object):
         """
         # Update session metadata info:
         # 1) if skip_validation == False, validate the imported metadata and check if there are validation errors
-        # 2) if there are no validation errors, retrieve existing metadata, merge existing metadata and imported 
+        # 2) if there are no validation errors, retrieve existing metadata, merge existing metadata and imported
         # metadata to update only empty fields, and update metadata. Otherwise we print validation errors and skip the update
 
         my_imported_metadata = json.loads(session_metadata).get("metadata", {})
-        
-        # Validate metadata only if skip_validation == False 
+
+        # Validate metadata only if skip_validation == False
         if not skip_validation:
             data = self._dispatch_graphql(
                 '''
@@ -682,7 +767,7 @@ class MoveshelfApi(object):
         metadata_str = data['node'].get('metadata')
         metadata_obj = json.loads(metadata_str) if metadata_str is not None else {}
         existing_metadata = metadata_obj.get("metadata", None)
-        
+
         # Merge dictionaries and write into resulting dict
         merged_metadata = self._merge_metadata_dictionaries(existing_metadata, my_imported_metadata)
         metadata_obj["metadata"] = merged_metadata
@@ -892,7 +977,7 @@ class MoveshelfApi(object):
         """
         Merge existing metadata and imported metadata dictionaries. The objective is to
         only update fields in the existing metadata that are empty
-        
+
         Args:
             existing_metadata (dict): Current metadata available on Moveshelf.
             imported_metadata (dict): Metadata to be imported.
@@ -903,7 +988,7 @@ class MoveshelfApi(object):
         """
         # Merge dictionaries
         if existing_metadata:
-            merged_metadata = existing_metadata.copy()  
+            merged_metadata = existing_metadata.copy()
             for key, value in existing_metadata.items():
                 # Case 1: Empty string
                 if isinstance(value, str) and value == "":
@@ -912,7 +997,7 @@ class MoveshelfApi(object):
 
                 # Case 2: Dict with empty "value"
                 elif isinstance(value, dict):
-                    if value.get("value") in ["", []]: 
+                    if value.get("value") in ["", []]:
                         if key in imported_metadata:
                             merged_metadata[key] = imported_metadata[key]
 
@@ -933,14 +1018,14 @@ class MoveshelfApi(object):
                             else:
                                 if key in imported_metadata:
                                     merged_metadata[key] = imported_metadata[key]
-            
+
             # Now we add keys that were not in existing_metadata
             for key, value in imported_metadata.items():
                 if key not in merged_metadata.keys():
                     merged_metadata[key] = value
         else:
             merged_metadata = imported_metadata
-        
+
         return merged_metadata
 
     def getProjectClips(self, project_id, limit, include_download_link=False):
@@ -953,7 +1038,7 @@ class MoveshelfApi(object):
             include_download_link (bool): Whether to include download link information in the result. Defaults to False.
 
         Returns:
-            list: A list of dictionaries, each containing clip information such as ID, title, and project path. 
+            list: A list of dictionaries, each containing clip information such as ID, title, and project path.
                   If `include_download_link` is True, includes file name and download URI.
         """
         query = '''
@@ -1015,7 +1100,7 @@ class MoveshelfApi(object):
 
         Returns:
             list: A list of dictionaries, each containing details about additional data, including:
-                  ID, data type, upload status, original file name, preview data URI, 
+                  ID, data type, upload status, original file name, preview data URI,
                   and original data download URI.
         """
         data = self._dispatch_graphql(
@@ -1074,7 +1159,7 @@ class MoveshelfApi(object):
         Retrieve a list of all projects and the first 20 clips associated with each project.
 
         Returns:
-            list: A list of dictionaries, where each dictionary contains project details 
+            list: A list of dictionaries, where each dictionary contains project details
                   (ID and name) and a nested list of clip details (ID and title).
         """
         data = self._dispatch_graphql(
@@ -1098,7 +1183,7 @@ class MoveshelfApi(object):
             '''
         )
         return [p for p in data['viewer']['projects']]
-    
+
     def getProjectSubjects(self, project_id):
         """
         Retrieve all subjects (patients) associated with a specific project.
@@ -1136,7 +1221,7 @@ class MoveshelfApi(object):
             projectId=project_id
         )
         return data['node']['patientsList']
-    
+
     def getProjectSubjectByEhrId(self, ehr_id, project_id):
         """
         Retrieve the subject with the specified ehr_id associated with a specific project.
@@ -1164,7 +1249,7 @@ class MoveshelfApi(object):
 
     def getSubjectDetails(self, subject_id):
         """
-        Retrieve details about a specific subject, including metadata, 
+        Retrieve details about a specific subject, including metadata,
         associated projects, reports, sessions, clips, and norms.
 
         Args:
@@ -1376,21 +1461,6 @@ class MoveshelfApi(object):
             }
         )
         return data['createClips']['response'][0]
-
-    def _calculateCrc32c(self, file_path):
-        """
-        Calculate the CRC32C checksum of a file.
-
-        Args:
-            file_path (str): The path to the file to calculate the checksum for.
-
-        Returns:
-            str: The Base64-encoded CRC32C checksum.
-        """
-        with open(file_path, 'rb') as fp:
-            crc = self._crc32c(fp.read())
-            b64_crc = base64.b64encode(struct.pack('>I', crc))
-            return b64_crc if six.PY2 else b64_crc.decode('utf8')
 
     def _createAdditionalData(self, clipId, metadata):
         """
