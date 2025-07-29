@@ -799,10 +799,10 @@ class MoveshelfApi(object):
 
     def deleteAdditionalData(self, additional_data_id: str):
         """
-        Delete a condition (additional data) from Moveshelf.
+        Delete an additional data from Moveshelf.
 
         Args:
-            additional_data_id (str): The ID of the additional data/condition to delete.
+            additional_data_id (str): The ID of the additional data to delete.
 
         Returns:
             bool: True if deletion was successful, False otherwise.
