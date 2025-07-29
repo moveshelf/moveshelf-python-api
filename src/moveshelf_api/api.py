@@ -1403,8 +1403,9 @@ class MoveshelfApi(object):
                             }
                         }
                         patient {
-                        id
-                        name
+                            id
+                            name
+                            metadata
                         }
                     }
                 }
@@ -1413,6 +1414,77 @@ class MoveshelfApi(object):
             sessionId=session_id
         )
         return data['node']
+
+    def generateInteractiveReport(self, session_id, layout_type):
+        """
+        Generate an interactive report for a given session.
+
+        Args:
+            session_id (str): The ID of the main session for this comparison.
+            layout_type (str): Type of the report. Options: "GaitReport", "ConditionSummary".
+
+        Returns:
+            dict: A dictionary containing the created report information.
+        """
+        # Get session data to extract project and patient information
+        session_data = self.getSessionById(session_id)
+
+        if not session_data:
+            raise ValueError(f"Session with ID {session_id} not found")
+
+        project_id = session_data["project"]["id"]
+        patient_id = session_data["patient"]["id"]
+
+        patient_name = session_data["patient"]["name"]
+        session_path = session_data["projectPath"]
+        title = f"{layout_type} Report - {patient_name} - {session_path}"
+
+        # Extract session name from projectPath (assuming format like "/patient_name/session_name")
+        session_name = (
+            session_path.split("/")[-1] if "/" in session_path else session_path
+        )
+        project_path = f"/{patient_name}/{session_name}"
+
+        clip_ids = [clip["id"] for clip in session_data.get("clips", [])]
+
+        # Get norm_id from session norms if available
+        norm_id = None
+        norms = session_data.get("norms", [])
+        if norms:
+            # Use the first norm available in the session
+            norm_id = norms[0]["id"]
+
+        # Get patient metadata for custom options
+        custom_options = session_data["patient"].get("metadata")
+
+        data = self._dispatch_graphql(
+            """
+            mutation generateInteractiveReport($input: GenerateInteractiveReportInput!) {
+                generateInteractiveReport(input: $input) {
+                    report {
+                        id
+                        title
+                        projectPath
+                        created
+                    }
+                }
+            }
+            """,
+            input={
+                "project": project_id,
+                "title": title,
+                "projectPath": project_path,
+                "clipIds": clip_ids,
+                "normId": norm_id,
+                "patientId": patient_id,
+                "layoutType": layout_type,
+                "avgIds": None,
+                "customOptions": custom_options,
+                "sessionId": session_id,
+            },
+        )
+
+        return data["generateInteractiveReport"]["report"]
 
     def _validateAndUpdateTimecode(self, tc):
         """
