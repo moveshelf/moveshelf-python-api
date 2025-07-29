@@ -1439,12 +1439,6 @@ class MoveshelfApi(object):
         session_path = session_data["projectPath"]
         title = f"{layout_type} Report - {patient_name} - {session_path}"
 
-        # Extract session name from projectPath (assuming format like "/patient_name/session_name")
-        session_name = (
-            session_path.split("/")[-1] if "/" in session_path else session_path
-        )
-        project_path = f"/{patient_name}/{session_name}"
-
         clip_ids = [clip["id"] for clip in session_data.get("clips", [])]
 
         # Get norm_id from session norms if available
@@ -1473,7 +1467,7 @@ class MoveshelfApi(object):
             input={
                 "project": project_id,
                 "title": title,
-                "projectPath": project_path,
+                "projectPath": session_path,
                 "clipIds": clip_ids,
                 "normId": norm_id,
                 "patientId": patient_id,
