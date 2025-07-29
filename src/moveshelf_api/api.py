@@ -713,7 +713,7 @@ class MoveshelfApi(object):
 
     def deleteSubject(self, subject_id: str):
         """
-        Delete a subject from the system.
+        Delete a subject from Moveshelf.
 
         Args:
             subject_id (str): The ID of the subject to delete.
@@ -735,7 +735,7 @@ class MoveshelfApi(object):
 
     def deleteSubjects(self, subject_ids: list[str]):
         """
-        Delete multiple subjects from the system.
+        Delete multiple subjects from Moveshelf.
 
         Args:
             subject_ids (list): List of subject IDs to delete.
@@ -755,7 +755,7 @@ class MoveshelfApi(object):
 
     def deleteSession(self, session_id: str):
         """
-        Delete a session from the system.
+        Delete a session from Moveshelf.
 
         Args:
             session_id (str): The ID of the session to delete.
@@ -777,7 +777,7 @@ class MoveshelfApi(object):
 
     def deleteClip(self, clip_id: str):
         """
-        Delete a trial (clip) from the system.
+        Delete a trial (clip) from Moveshelf.
 
         Args:
             clip_id (str): The ID of the clip/trial to delete.
@@ -799,7 +799,7 @@ class MoveshelfApi(object):
 
     def deleteAdditionalData(self, additional_data_id: str):
         """
-        Delete a condition (additional data) from the system.
+        Delete a condition (additional data) from Moveshelf.
 
         Args:
             additional_data_id (str): The ID of the additional data/condition to delete.
