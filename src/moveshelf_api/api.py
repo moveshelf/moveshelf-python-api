@@ -940,7 +940,6 @@ class MoveshelfApi(object):
                     originalFileName
                     previewDataUri
                     originalDataDownloadUri
-                    generation
                 }
                 }
             }
