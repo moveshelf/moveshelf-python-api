@@ -1453,8 +1453,29 @@ class MoveshelfApi(object):
 
         data = self._dispatch_graphql(
             """
-            mutation generateInteractiveReport($input: GenerateInteractiveReportInput!) {
-                generateInteractiveReport(input: $input) {
+            mutation createInteractiveReport($project: String!
+                $title: String!
+                $avgIds: [String]
+                $clipIds: [String]
+                $projectPath: String
+                $layoutType: String
+                $patientId: ID
+                $customOptions: JSONString
+                $sessionId: ID
+                $normId: ID
+            ) {
+                createReport(
+                  project: $project
+                  title: $title
+                  clipIds: $clipIds
+                  avgIds: $avgIds
+                  projectPath: $projectPath
+                  layoutType: $layoutType
+                  patientId: $patientId
+                  customOptions: $customOptions
+                  sessionId: $sessionId
+                  normId: $normId
+                ) {
                     report {
                         id
                         title
@@ -1464,18 +1485,16 @@ class MoveshelfApi(object):
                 }
             }
             """,
-            input={
-                "project": project_id,
-                "title": title,
-                "projectPath": session_path,
-                "clipIds": clip_ids,
-                "normId": norm_id,
-                "patientId": patient_id,
-                "layoutType": layout_type,
-                "avgIds": None,
-                "customOptions": custom_options,
-                "sessionId": session_id,
-            },
+            project= project_id,
+            title= title,
+            projectPath= session_path,
+            clipIds= clip_ids,
+            normId= norm_id,
+            patientId= patient_id,
+            layoutType= layout_type,
+            avgIds= None,
+            customOptions= custom_options,
+            sessionId= session_id,
         )
 
         return data["generateInteractiveReport"]["report"]
