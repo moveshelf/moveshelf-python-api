@@ -1415,89 +1415,79 @@ class MoveshelfApi(object):
         )
         return data['node']
 
-    def generateInteractiveReport(self, session_id, layout_type):
+    def generateAutomaticInteractiveReport(self, session_id, norm_id=None):
         """
-        Generate an interactive report for a given session.
+        Generate an automatic interactive report for a given session.
 
         Args:
-            session_id (str): The ID of the main session for this comparison.
-            layout_type (str): Type of the report. Options: "GaitReport", "ConditionSummary".
+            session_id (str): The ID of the session to create the report for.
+            norm_id (str, optional): Optional normalization ID for the report.
 
         Returns:
-            dict: A dictionary containing the created report information.
+            bool: True if the automatic reports were created successfully.
         """
-        # Get session data to extract project and patient information
-        session_data = self.getSessionById(session_id)
-
-        if not session_data:
-            raise ValueError(f"Session with ID {session_id} not found")
-
-        project_id = session_data["project"]["id"]
-        patient_id = session_data["patient"]["id"]
-
-        patient_name = session_data["patient"]["name"]
-        session_path = session_data["projectPath"]
-        title = f"{layout_type} Report - {patient_name} - {session_path}"
-
-        clip_ids = [clip["id"] for clip in session_data.get("clips", [])]
-
-        # Get norm_id from session norms if available
-        norm_id = None
-        norms = session_data.get("norms", [])
-        if norms:
-            # Use the first norm available in the session
-            norm_id = norms[0]["id"]
-
-        # Get patient metadata for custom options
-        custom_options = session_data["patient"].get("metadata")
-
         data = self._dispatch_graphql(
             """
-            mutation createInteractiveReport($project: String!
-                $title: String!
-                $avgIds: [String]
-                $clipIds: [String]
-                $projectPath: String
-                $layoutType: String
-                $patientId: ID
-                $customOptions: JSONString
-                $sessionId: ID
-                $normId: ID
-            ) {
-                createReport(
-                  project: $project
-                  title: $title
-                  clipIds: $clipIds
-                  avgIds: $avgIds
-                  projectPath: $projectPath
-                  layoutType: $layoutType
-                  patientId: $patientId
-                  customOptions: $customOptions
-                  sessionId: $sessionId
-                  normId: $normId
-                ) {
-                    report {
-                        id
-                        title
-                        projectPath
-                        created
+                mutation CreateAutomaticInteractiveReport($sessionId: ID!, $normId: String) {
+                    createAutomaticInteractiveReport(sessionId: $sessionId, normId: $normId) {
+                        ok
                     }
                 }
-            }
             """,
-            project= project_id,
-            title= title,
-            projectPath= session_path,
-            clipIds= clip_ids,
-            normId= norm_id,
-            patientId= patient_id,
-            layoutType= layout_type,
-            avgIds= None,
-            customOptions= custom_options,
-            sessionId= session_id,
+            sessionId=session_id,
+            normId=norm_id,
         )
 
-        return data["generateInteractiveReport"]["report"]
+        return data["createAutomaticInteractiveReport"]["ok"]
+
+    def generateInteractiveReport(
+        self, session_id, report_type, title, trials_ids, norm_id=None, template_id=None
+    ):
+        """
+        Generate an interactive report for a given session with custom parameters.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            report_type (str): The type of report to create.
+            title (str): The title for the report.
+            trials_ids (list): List of trial IDs to include in the report.
+            norm_id (str, optional): Optional normalization ID for the report.
+            template_id (str, optional): Optional template ID to use for report generation.
+
+        Returns:
+            bool: True if the report was created successfully.
+        """
+        data = self._dispatch_graphql(
+            """
+                mutation CreateInteractiveReport(
+                    $sessionId: ID!,
+                    $reportType: String!,
+                    $title: String!,
+                    $trialsIds: [String]!,
+                    $normId: String,
+                    $templateId: String
+                ) {
+                    createInteractiveReport(
+                        sessionId: $sessionId,
+                        reportType: $reportType,
+                        title: $title,
+                        trialsIds: $trialsIds,
+                        normId: $normId,
+                        templateId: $templateId
+                    ) {
+                        ok
+                    }
+                }
+            """,
+            sessionId=session_id,
+            reportType=report_type,
+            title=title,
+            trialsIds=trials_ids,
+            normId=norm_id,
+            templateId=template_id,
+        )
+
+        return data["createInteractiveReport"]["ok"]
 
     def _validateAndUpdateTimecode(self, tc):
         """
