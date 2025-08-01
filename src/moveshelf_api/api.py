@@ -1440,7 +1440,82 @@ class MoveshelfApi(object):
 
         return data["createAutomaticInteractiveReport"]["ok"]
 
-    def generateInteractiveReport(
+    def generateConditionSummaryReport(
+        self, session_id, title, trials_ids, norm_id=None, template_id=None
+    ):
+        """
+        Generate a condition summary report for a given session.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            title (str): The title for the report.
+            trials_ids (list): List of trial IDs to include in the report.
+            norm_id (str, optional): Optional normalization ID for the report.
+            template_id (str, optional): Optional template ID to use for report generation.
+
+        Returns:
+            bool: True if the report was created successfully.
+        """
+        return self._generateInteractiveReport(
+            session_id=session_id,
+            report_type="currentSessionConditionSummaries",
+            title=title,
+            trials_ids=trials_ids,
+            norm_id=norm_id,
+            template_id=template_id,
+        )
+
+    def generateCurrentVsPreviousSessionReport(
+        self, session_id, title, trials_ids, norm_id=None, template_id=None
+    ):
+        """
+        Generate a comparison report between current and previous session.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            title (str): The title for the report.
+            trials_ids (list): List of trial IDs to include in the report.
+            norm_id (str, optional): Optional normalization ID for the report.
+            template_id (str, optional): Optional template ID to use for report generation.
+
+        Returns:
+            bool: True if the report was created successfully.
+        """
+        return self._generateInteractiveReport(
+            session_id=session_id,
+            report_type="currentVsPreviousSessionComparison",
+            title=title,
+            trials_ids=trials_ids,
+            norm_id=norm_id,
+            template_id=template_id,
+        )
+
+    def generateCurrentSessionComparisonReport(
+        self, session_id, title, trials_ids, norm_id=None, template_id=None
+    ):
+        """
+        Generate a comparison report within the current session.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            title (str): The title for the report.
+            trials_ids (list): List of trial IDs to include in the report.
+            norm_id (str, optional): Optional normalization ID for the report.
+            template_id (str, optional): Optional template ID to use for report generation.
+
+        Returns:
+            bool: True if the report was created successfully.
+        """
+        return self._generateInteractiveReport(
+            session_id=session_id,
+            report_type="currentSessionComparison",
+            title=title,
+            trials_ids=trials_ids,
+            norm_id=norm_id,
+            template_id=template_id,
+        )
+
+    def _generateInteractiveReport(
         self, session_id, report_type, title, trials_ids, norm_id=None, template_id=None
     ):
         """
