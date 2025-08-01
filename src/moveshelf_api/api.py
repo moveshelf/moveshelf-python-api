@@ -90,13 +90,14 @@ class MoveshelfApi(object):
         http (urllib3.PoolManager): HTTP client for making requests.
     """
 
-    def __init__(self, api_key_file='mvshlf-api-key.json', api_url='https://api.moveshelf.com/graphql'):
+    def __init__(self, api_key_file='mvshlf-api-key.json', api_url='https://api.moveshelf.com/graphql', timeout: int = 120):
         """
         Initialize the Moveshelf API client.
 
         Args:
             api_key_file (str): Path to the JSON file containing the API key. Defaults to 'mvshlf-api-key.json'.
             api_url (str): URL for the Moveshelf GraphQL API. Defaults to 'https://api.moveshelf.com/graphql'.
+            timeout (int): Timeout for HTTP requests in seconds. Defaults to 120 seconds.
 
         Raises:
             ValueError: If the API key file is not found or invalid.
@@ -124,7 +125,7 @@ class MoveshelfApi(object):
         # Initialize urllib3 PoolManager with retry strategy
         self.http = urllib3.PoolManager(
             retries=retry_strategy,
-            timeout=urllib3.Timeout(connect=10, read=120)
+            timeout=urllib3.Timeout(connect=10, read=timeout)
         )
 
     def getProjectDatasets(self, project_id):
