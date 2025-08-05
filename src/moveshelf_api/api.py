@@ -1382,6 +1382,11 @@ class MoveshelfApi(object):
                             id
                             name
                             canEdit
+                            norms {
+                                id
+                                name
+                                status
+                            }
                         }
                         clips {
                             id
@@ -1391,16 +1396,6 @@ class MoveshelfApi(object):
                             uploadStatus
                             hasCharts
                             hasVideo
-                        }
-                        norms {
-                            id
-                            name
-                            uploadStatus
-                            projectPath
-                            clips {
-                                id
-                                title
-                            }
                         }
                         patient {
                             id
@@ -1415,7 +1410,7 @@ class MoveshelfApi(object):
         )
         return data['node']
 
-    def generateAutomaticInteractiveReport(self, session_id, norm_id=None):
+    def generateAutomaticInteractiveReports(self, session_id, norm_id=None):
         """
         Generate an automatic interactive report for a given session.
 
@@ -1428,8 +1423,8 @@ class MoveshelfApi(object):
         """
         data = self._dispatch_graphql(
             """
-                mutation CreateAutomaticInteractiveReport($sessionId: ID!, $normId: String) {
-                    createAutomaticInteractiveReport(sessionId: $sessionId, normId: $normId) {
+                mutation CreateAutomaticInteractiveReports($sessionId: ID!, $normId: String) {
+                    createAutomaticInteractiveReports(sessionId: $sessionId, normId: $normId) {
                         ok
                     }
                 }
@@ -1438,7 +1433,7 @@ class MoveshelfApi(object):
             normId=norm_id,
         )
 
-        return data["createAutomaticInteractiveReport"]["ok"]
+        return data["createAutomaticInteractiveReports"]["ok"]
 
     def generateConditionSummaryReport(
         self, session_id, title, trials_ids, norm_id=None, template_id=None

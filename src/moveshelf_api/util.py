@@ -18,14 +18,14 @@ def getPatientMetadata(api, mySubjectId):
 
 def getConditionsFromSession(session, conditions=[]):
     """
-    Extract conditions and associated clips/norms from a session.
+    Extract conditions and associated clips from a session.
 
     Args:
-        session (dict): A dictionary containing session details, including `projectPath`, `clips`, and `norms`.
+        session (dict): A dictionary containing session details, including `projectPath`, and `clips`.
         conditions (list, optional): A list to append or match conditions. Defaults to an empty list.
 
     Returns:
-        list: A list of conditions, each containing `path`, `fullPath`, `norms`, and `clips`.
+        list: A list of conditions, each containing `path`, `fullPath`, and `clips`.
     """
     sessionPath = session['projectPath']
     clips = session['clips']
@@ -43,33 +43,11 @@ def getConditionsFromSession(session, conditions=[]):
                     break
 
             if not conditionFound:
-                condition = dict.fromkeys(['path', 'fullPath', 'norms', 'clips'])
+                condition = dict.fromkeys(['path', 'fullPath', 'clips'])
                 condition['path'] = conditionPath
                 condition['fullPath'] = sessionPath + conditionPath
-                condition['norms'] = []
                 condition['clips'] = [c]
                 conditions.append(condition)
-
-    # Process norms to extract conditions
-    norms = session['norms']
-    for n in norms:
-        normPath = ''
-        if n['projectPath']:
-            normPath = n['projectPath'].split(sessionPath)
-            if len(normPath) > 0:
-                conditionPath = normPath[1]
-                conditionFound = False
-                for condition in conditions:
-                    if condition['path'] == conditionPath:
-                        condition['norms'].append(n)
-                        conditionFound = True
-                        break
-                if not conditionFound:
-                    condition = dict.fromkeys(['path', 'fullPath', 'norms', 'clips'])
-                    condition['path'] = conditionPath
-                    condition['norms'] = [n]
-                    condition['clips'] = []
-                    conditions.append(condition)
 
     return conditions
 
