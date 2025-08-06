@@ -1258,9 +1258,9 @@ class MoveshelfApi(object):
         Returns:
             dict: A dictionary containing the subject's details, including:
                   - ID, name, and metadata.
-                  - Associated project details (ID).
+                  - Associated project details (ID) and norms.
                   - List of reports (ID and title).
-                  - List of sessions with nested clips and norms details.
+                  - List of sessions with nested clips details.
         """
         data = self._dispatch_graphql(
             '''
@@ -1272,6 +1272,16 @@ class MoveshelfApi(object):
                         metadata,
                         project {
                             id
+                            norms {
+                                id
+                                name
+                                uploadStatus
+                                projectPath
+                                clips {
+                                    id
+                                    title
+                                }
+                            }
                         }
                         reports {
                             id
@@ -1287,16 +1297,6 @@ class MoveshelfApi(object):
                                 projectPath
                                 uploadStatus
                                 hasCharts
-                            }
-                            norms {
-                                id
-                                name
-                                uploadStatus
-                                projectPath
-                                clips {
-                                    id
-                                    title
-                                }
                             }
                         }
                     }
@@ -1416,7 +1416,7 @@ class MoveshelfApi(object):
 
         Args:
             session_id (str): The ID of the session to create the report for.
-            norm_id (str, optional): Optional normalization ID for the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
 
         Returns:
             bool: True if the automatic reports were created successfully.
@@ -1445,7 +1445,7 @@ class MoveshelfApi(object):
             session_id (str): The ID of the session to create the report for.
             title (str): The title for the report.
             trials_ids (list): List of trial IDs to include in the report.
-            norm_id (str, optional): Optional normalization ID for the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
             template_id (str, optional): Optional template ID to use for report generation.
 
         Returns:
@@ -1470,7 +1470,7 @@ class MoveshelfApi(object):
             session_id (str): The ID of the session to create the report for.
             title (str): The title for the report.
             trials_ids (list): List of trial IDs to include in the report.
-            norm_id (str, optional): Optional normalization ID for the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
             template_id (str, optional): Optional template ID to use for report generation.
 
         Returns:
@@ -1495,7 +1495,7 @@ class MoveshelfApi(object):
             session_id (str): The ID of the session to create the report for.
             title (str): The title for the report.
             trials_ids (list): List of trial IDs to include in the report.
-            norm_id (str, optional): Optional normalization ID for the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
             template_id (str, optional): Optional template ID to use for report generation.
 
         Returns:
@@ -1521,7 +1521,7 @@ class MoveshelfApi(object):
             report_type (str): The type of report to create.
             title (str): The title for the report.
             trials_ids (list): List of trial IDs to include in the report.
-            norm_id (str, optional): Optional normalization ID for the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
             template_id (str, optional): Optional template ID to use for report generation.
 
         Returns:
