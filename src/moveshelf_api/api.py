@@ -1259,9 +1259,9 @@ class MoveshelfApi(object):
         Returns:
             dict: A dictionary containing the subject's details, including:
                   - ID, name, and metadata.
-                  - Associated project details (ID).
+                  - Associated project details (ID) and norms.
                   - List of reports (ID and title).
-                  - List of sessions with nested clips and norms details.
+                  - List of sessions with nested clips details.
         """
         data = self._dispatch_graphql(
             '''
@@ -1273,6 +1273,16 @@ class MoveshelfApi(object):
                         metadata,
                         project {
                             id
+                            norms {
+                                id
+                                name
+                                uploadStatus
+                                projectPath
+                                clips {
+                                    id
+                                    title
+                                }
+                            }
                         }
                         reports {
                             id
@@ -1288,16 +1298,6 @@ class MoveshelfApi(object):
                                 projectPath
                                 uploadStatus
                                 hasCharts
-                            }
-                            norms {
-                                id
-                                name
-                                uploadStatus
-                                projectPath
-                                clips {
-                                    id
-                                    title
-                                }
                             }
                         }
                     }
@@ -1383,6 +1383,11 @@ class MoveshelfApi(object):
                             id
                             name
                             canEdit
+                            norms {
+                                id
+                                name
+                                status
+                            }
                         }
                         clips {
                             id
@@ -1393,19 +1398,10 @@ class MoveshelfApi(object):
                             hasCharts
                             hasVideo
                         }
-                        norms {
+                        patient {
                             id
                             name
-                            uploadStatus
-                            projectPath
-                            clips {
-                                id
-                                title
-                            }
-                        }
-                        patient {
-                        id
-                        name
+                            metadata
                         }
                     }
                 }
@@ -1414,6 +1410,155 @@ class MoveshelfApi(object):
             sessionId=session_id
         )
         return data['node']
+
+    def generateAutomaticInteractiveReports(self, session_id, norm_id=None):
+        """
+        Generate an automatic interactive report for a given session.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
+
+        Returns:
+            bool: True if the automatic reports were created successfully.
+        """
+        data = self._dispatch_graphql(
+            """
+                mutation CreateAutomaticInteractiveReports($sessionId: ID!, $normId: String) {
+                    createAutomaticInteractiveReports(sessionId: $sessionId, normId: $normId) {
+                        ok
+                    }
+                }
+            """,
+            sessionId=session_id,
+            normId=norm_id,
+        )
+
+        return data["createAutomaticInteractiveReports"]["ok"]
+
+    def generateConditionSummaryReport(
+        self, session_id, title, trials_ids, norm_id=None, template_id=None
+    ):
+        """
+        Generate a condition summary report for a given session.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            title (str): The title for the report.
+            trials_ids (list): List of trial IDs to include in the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
+            template_id (str, optional): Optional template ID to use for report generation.
+
+        Returns:
+            bool: True if the report was created successfully.
+        """
+        return self._generateInteractiveReport(
+            session_id=session_id,
+            report_type="currentSessionConditionSummaries",
+            title=title,
+            trials_ids=trials_ids,
+            norm_id=norm_id,
+            template_id=template_id,
+        )
+
+    def generateCurrentVsPreviousSessionReport(
+        self, session_id, title, trials_ids, norm_id=None, template_id=None
+    ):
+        """
+        Generate a comparison report between current and previous session.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            title (str): The title for the report.
+            trials_ids (list): List of trial IDs to include in the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
+            template_id (str, optional): Optional template ID to use for report generation.
+
+        Returns:
+            bool: True if the report was created successfully.
+        """
+        return self._generateInteractiveReport(
+            session_id=session_id,
+            report_type="currentVsPreviousSessionComparison",
+            title=title,
+            trials_ids=trials_ids,
+            norm_id=norm_id,
+            template_id=template_id,
+        )
+
+    def generateCurrentSessionComparisonReport(
+        self, session_id, title, trials_ids, norm_id=None, template_id=None
+    ):
+        """
+        Generate a comparison report within the current session.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            title (str): The title for the report.
+            trials_ids (list): List of trial IDs to include in the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
+            template_id (str, optional): Optional template ID to use for report generation.
+
+        Returns:
+            bool: True if the report was created successfully.
+        """
+        return self._generateInteractiveReport(
+            session_id=session_id,
+            report_type="currentSessionComparison",
+            title=title,
+            trials_ids=trials_ids,
+            norm_id=norm_id,
+            template_id=template_id,
+        )
+
+    def _generateInteractiveReport(
+        self, session_id, report_type, title, trials_ids, norm_id=None, template_id=None
+    ):
+        """
+        Generate an interactive report for a given session with custom parameters.
+
+        Args:
+            session_id (str): The ID of the session to create the report for.
+            report_type (str): The type of report to create.
+            title (str): The title for the report.
+            trials_ids (list): List of trial IDs to include in the report.
+            norm_id (str, optional): Optional norm (reference data) ID for the report.
+            template_id (str, optional): Optional template ID to use for report generation.
+
+        Returns:
+            bool: True if the report was created successfully.
+        """
+        data = self._dispatch_graphql(
+            """
+                mutation CreateInteractiveReport(
+                    $sessionId: ID!,
+                    $reportType: String!,
+                    $title: String!,
+                    $trialsIds: [String]!,
+                    $normId: String,
+                    $templateId: String
+                ) {
+                    createInteractiveReport(
+                        sessionId: $sessionId,
+                        reportType: $reportType,
+                        title: $title,
+                        trialsIds: $trialsIds,
+                        normId: $normId,
+                        templateId: $templateId
+                    ) {
+                        ok
+                    }
+                }
+            """,
+            sessionId=session_id,
+            reportType=report_type,
+            title=title,
+            trialsIds=trials_ids,
+            normId=norm_id,
+            templateId=template_id,
+        )
+
+        return data["createInteractiveReport"]["ok"]
 
     def _validateAndUpdateTimecode(self, tc):
         """
