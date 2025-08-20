@@ -646,21 +646,10 @@ class MoveshelfApi(object):
             dict: A dictionary containing the session's ID and project path.
         """
 
-        create_session_date = None
+        self._validate_date(session_date)
 
-        # Check if session_date is provided
-        if session_date:
-            # Validate the date format
-            try:
-                datetime.strptime(session_date, "%Y-%m-%d")
-                create_session_date = session_date
-            except ValueError:
-                # If the date format is invalid, raise an error and return
-                print("Invalid date format. Please use YYYY-MM-DD.")
-                return
-
-        # If session_date is not provided or is invalid, extract it from the session_path
-        if not create_session_date:
+        # If session_date is not provided, extract it from the session_path
+        if not session_date:
             # Split the path and extract the session date
             # Assuming path is always in format "/subjectName/YYYY-MM-DD/"
             session_path_parts = session_path.strip("/").split("/")
@@ -672,7 +661,7 @@ class MoveshelfApi(object):
                 # Try to validate the date format
                 try:
                     datetime.strptime(my_session, "%Y-%m-%d")
-                    create_session_date = my_session
+                    session_date = my_session
                 except ValueError:
                     # If the date format is invalid, keep it None
                     pass
@@ -691,7 +680,7 @@ class MoveshelfApi(object):
             projectId=project_id,
             projectPath=session_path,
             patientId=subject_id,
-            sessionDate=create_session_date,
+            sessionDate=session_date,
         )
 
         return data["createSession"]["session"]
