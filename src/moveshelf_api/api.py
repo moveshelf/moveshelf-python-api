@@ -1247,6 +1247,127 @@ class MoveshelfApi(object):
             projectId=project_id
         )
         return data['patient']
+    
+    def getProjectSessions(self, project_id: str, start_date: str | None = None, end_date: str | None = None):
+        """
+        Retrieve all sessions associated with a specific project, optionally filtered by date range.
+        Args:
+            project_id (str): The ID of the project to retrieve sessions for.
+            start_date (str, optional): The start date for filtering sessions in `YYYY-MM-DD` format. Defaults to None.
+            end_date (str, optional): The end date for filtering sessions in `YYYY-MM-DD` format. Defaults to None.
+        Returns:
+            list: A list of session dictionaries, each containing session details such as ID, date, project path,
+                  metadata, and associated patient information (ID, name, metadata).
+        """
+        if start_date:
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("Invalid start_date format. Use YYYY-MM-DD.")
+            
+        if end_date:
+            try:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("Invalid end_date format. Use YYYY-MM-DD.")
+            
+        data = self._dispatch_graphql(
+            '''
+            query getProjectSessions($projectId: ID!, $startDate: DateTime, $endDate: DateTime) {
+                node(id: $projectId) {
+                    ... on Project {
+                        id,
+                        name,
+                        description,
+                        canEdit,
+                        sessions(startDate: $startDate, endDate: $endDate) {
+                            id,
+                            date,
+                            projectPath,
+                            metadata,
+                            patient {
+                                id,
+                                name,
+                                metadata
+                            }
+                        }    
+                    }
+                }
+            }
+            ''',
+            projectId = project_id,
+            startDate = start_date,
+            endDate = end_date
+        )
+        return data['node']['sessions']
+    
+    def getProjectSessionsWithAdditionalData(self, project_id: str, start_date: str | None = None, end_date: str | None = None):
+        """
+        Retrieve all sessions associated with a specific project, optionally filtered by date range.
+        Args:
+            project_id (str): The ID of the project to retrieve sessions for.
+            start_date (str, optional): The start date for filtering sessions in `YYYY-MM-DD` format. Defaults to None.
+            end_date (str, optional): The end date for filtering sessions in `YYYY-MM-DD` format. Defaults to None.
+        Returns:
+            list: A list of session dictionaries, each containing session details such as ID, date, project path,
+                  metadata, associated patient information (ID, name, metadata), clips and additional data.
+        """
+        if start_date:
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("Invalid start_date format. Use YYYY-MM-DD.")
+            
+        if end_date:
+            try:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("Invalid end_date format. Use YYYY-MM-DD.")
+            
+        data = self._dispatch_graphql(
+            '''
+            query getProjectSessions($projectId: ID!, $startDate: DateTime, $endDate: DateTime) {
+                node(id: $projectId) {
+                    ... on Project {
+                        id,
+                        name,
+                        description,
+                        canEdit,
+                        sessions(startDate: $startDate, endDate: $endDate) {
+                            id,
+                            date,
+                            projectPath,
+                            metadata,
+                            patient {
+                                id,
+                                name,
+                                metadata
+                            }
+                            clips {
+                                id
+                                title
+                                created
+                                projectPath
+                                uploadStatus
+                                hasCharts
+                                additionalData {
+                                    id
+                                    dataType
+                                    uploadStatus
+                                    originalFileName
+                                    originalDataDownloadUri
+                                }
+                            }
+                        }    
+                    }
+                }
+            }
+            ''',
+            projectId = project_id,
+            startDate = start_date,
+            endDate = end_date
+        )
+        return data['node']['sessions']
 
     def getSubjectDetails(self, subject_id):
         """
