@@ -646,21 +646,10 @@ class MoveshelfApi(object):
             dict: A dictionary containing the session's ID and project path.
         """
 
-        create_session_date = None
+        self._validate_date(session_date)
 
-        # Check if session_date is provided
-        if session_date:
-            # Validate the date format
-            try:
-                datetime.strptime(session_date, "%Y-%m-%d")
-                create_session_date = session_date
-            except ValueError:
-                # If the date format is invalid, raise an error and return
-                print("Invalid date format. Please use YYYY-MM-DD.")
-                return
-
-        # If session_date is not provided or is invalid, extract it from the session_path
-        if not create_session_date:
+        # If session_date is not provided, extract it from the session_path
+        if not session_date:
             # Split the path and extract the session date
             # Assuming path is always in format "/subjectName/YYYY-MM-DD/"
             session_path_parts = session_path.strip("/").split("/")
@@ -672,7 +661,7 @@ class MoveshelfApi(object):
                 # Try to validate the date format
                 try:
                     datetime.strptime(my_session, "%Y-%m-%d")
-                    create_session_date = my_session
+                    session_date = my_session
                 except ValueError:
                     # If the date format is invalid, keep it None
                     pass
@@ -691,7 +680,7 @@ class MoveshelfApi(object):
             projectId=project_id,
             projectPath=session_path,
             patientId=subject_id,
-            sessionDate=create_session_date,
+            sessionDate=session_date,
         )
 
         return data["createSession"]["session"]
@@ -1247,6 +1236,96 @@ class MoveshelfApi(object):
             projectId=project_id
         )
         return data['patient']
+    
+    def getProjectSessions(self, project_id: str, start_date: str | None = None, end_date: str | None = None, include_additional_data: bool = False):
+        """
+        Retrieve all sessions associated with a specific project, optionally filtered by date range.
+        Args:
+            project_id (str): The ID of the project to retrieve sessions for.
+            start_date (str, optional): The start date for filtering sessions in `YYYY-MM-DD` format. Defaults to None.
+            end_date (str, optional): The end date for filtering sessions in `YYYY-MM-DD` format. Defaults to None.
+            include_additional_data (bool, optional): Whether to include additional data in the session details. Defaults to False.
+        Returns:
+            list: A list of session dictionaries, each containing session details such as ID, date, project path,
+                  metadata, and associated patient information (ID, name, metadata).
+        Raises:
+            ValueError: If the provided start_date or end_date is not in the correct format.
+        """
+        self._validate_date(start_date)
+        self._validate_date(end_date)
+
+        if include_additional_data:
+            query = '''
+                query getProjectSessions($projectId: ID!, $startDate: DateTime, $endDate: DateTime) {
+                    node(id: $projectId) {
+                        ... on Project {
+                            id,
+                            name,
+                            description,
+                            canEdit,
+                            sessions(startDate: $startDate, endDate: $endDate) {
+                                id,
+                                date,
+                                projectPath,
+                                metadata,
+                                patient {
+                                    id,
+                                    name,
+                                    metadata
+                                }
+                                clips {
+                                    id
+                                    title
+                                    created
+                                    projectPath
+                                    uploadStatus
+                                    hasCharts
+                                    additionalData {
+                                        id
+                                        dataType
+                                        uploadStatus
+                                        originalFileName
+                                        originalDataDownloadUri
+                                    }
+                                }
+                            }    
+                        }
+                    }
+                }
+                '''
+        else:
+            query = '''
+                query getProjectSessions($projectId: ID!, $startDate: DateTime, $endDate: DateTime) {
+                    node(id: $projectId) {
+                        ... on Project {
+                            id,
+                            name,
+                            description,
+                            canEdit,
+                            sessions(startDate: $startDate, endDate: $endDate) {
+                                id,
+                                date,
+                                projectPath,
+                                metadata,
+                                patient {
+                                    id,
+                                    name,
+                                    metadata
+                                }
+                            }    
+                        }
+                    }
+                }
+                '''
+        
+        data = self._dispatch_graphql(
+            query,
+            projectId = project_id,
+            startDate = start_date,
+            endDate = end_date
+        )
+        
+        return data['node']['sessions']
 
     def getSubjectDetails(self, subject_id):
         """
@@ -1575,6 +1654,20 @@ class MoveshelfApi(object):
         assert isinstance(tc['framerate'], TimecodeFramerate)
         assert re.match('\d{2}:\d{2}:\d{2}[:;]\d{2,3}', tc['timecode'])
         tc['framerate'] = tc['framerate'].name
+
+    def _validate_date(self, date_str: str | None) -> None:
+        """
+        Validate the format of a date string.
+        Args:
+            date_str (str | None): The date string to validate in `YYYY-MM-DD` format.
+        Raises:
+            ValueError: If the date string is not in the correct format.
+        """
+        if date_str:
+            try:
+                datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError(f"Invalid date format. Expected YYYY-MM-DD, but received {date_str}.")
 
     def _createClip(self, project, clip_creation_data):
         """
