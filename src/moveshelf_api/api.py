@@ -1667,7 +1667,7 @@ class MoveshelfApi(object):
             try:
                 datetime.strptime(date_str, "%Y-%m-%d")
             except ValueError:
-                raise ValueError(f"Invalid date format. Use YYYY-MM-DD.")
+                raise ValueError(f"Invalid date format. Expected YYYY-MM-DD, but received {date_str}.")
 
     def _createClip(self, project, clip_creation_data):
         """
