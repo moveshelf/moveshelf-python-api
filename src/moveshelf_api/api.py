@@ -1192,7 +1192,6 @@ class MoveshelfApi(object):
                         id,
                         name,
                         description,
-                        configuration,
                         canEdit,
                         template {
                             name,
