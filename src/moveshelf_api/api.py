@@ -1736,6 +1736,32 @@ class MoveshelfApi(object):
         )
         return data['createAdditionalData']
 
+    def _extract_cookies(self, response):
+        """Extract cookies from response headers and store them"""
+        set_cookie_header = response.headers.get("Set-Cookie")
+        if set_cookie_header:
+            # Handle multiple Set-Cookie headers
+            cookies = (
+                set_cookie_header
+                if isinstance(set_cookie_header, list)
+                else [set_cookie_header]
+            )
+
+            for cookie_string in cookies:
+                # Parse each cookie (format: name=value; path=/; domain=...)
+                cookie_parts = cookie_string.split(";")[0]  # Get only name=value part
+                if "=" in cookie_parts:
+                    name, value = cookie_parts.split("=", 1)
+                    self.cookies[name.strip()] = value.strip()
+
+    def _get_cookie_header(self):
+        """Build Cookie header string from stored cookies"""
+        if hasattr(self, "cookies") and self.cookies:
+            return "; ".join(
+                [f"{name}={value}" for name, value in self.cookies.items()]
+            )
+        return None
+
     def _dispatch_graphql(self, query, **kwargs):
         """
         Send a GraphQL query or mutation to the API and return the response data.
@@ -1759,6 +1785,11 @@ class MoveshelfApi(object):
             **self._auth_token.get_auth_header(),
         }
 
+        # Add session cookies if available
+        cookie_header = self._get_cookie_header()
+        if cookie_header:
+            headers["Cookie"] = cookie_header
+
         try:
             response = self.http.request(
                 "POST",
@@ -1766,6 +1797,9 @@ class MoveshelfApi(object):
                 body=json.dumps(payload).encode("utf-8"),
                 headers=headers,
             )
+
+            # Extract and store cookies from response for future requests
+            self._extract_cookies(response)
 
             if response.status >= 400:
                 raise urllib3.exceptions.HTTPError(
