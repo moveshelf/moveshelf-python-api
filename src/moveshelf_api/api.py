@@ -1236,6 +1236,225 @@ class MoveshelfApi(object):
         )
         return data['patient']
     
+    def getFilteredProjectSubjects(self, project_id: str, subject_metadata_filters: dict | None = None, session_filters: dict | None = None, include_additional_data: bool = False):
+        """
+        Retrieve all subjects (patients) associated with a specific project, optionally filtered by subject metadata and/or session dates and count.
+
+        Args:
+            project_id (str): The ID of the project to retrieve subjects for.
+            subject_metadata_filters (dict, optional): A dictionary of metadata filters to apply. Defaults to None.
+            session_filters (dict, optional): A dictionary of session filters to apply. Defaults to None.
+            include_additional_data (bool, optional): Whether to include reports, clips, and additional data in the subject details. Defaults to False.
+
+        Returns:
+            list: A list of filtered subjects. Note that each subject will return ALL sessions, and not only those matching session_filters.
+        """
+        
+        # Validate filters
+        self._validate_base_filter_input(subject_metadata_filters)
+        self._validate_session_filters(session_filters)
+            
+        if include_additional_data:
+            query = '''
+                query getProjectSubjects($projectId: ID!, $filters: BaseFilterInput, $sessionFilters: SessionFilterInput) {
+                    node(id: $projectId) {
+                        ... on Project {
+                            id,
+                            name,
+                            description,
+                            canEdit,
+                            patients(metadataFilters: $filters, sessionFilters: $sessionFilters) {
+                                id
+                                name
+                                metadata
+                                sessions {
+                                    id,
+                                    date,
+                                    projectPath,
+                                    metadata,
+                                    reports {
+                                        id
+                                        title
+                                        clips {
+                                            id
+                                            title
+                                            created
+                                            projectPath
+                                            uploadStatus
+                                            hasCharts
+                                            additionalData {
+                                                id
+                                                dataType
+                                                uploadStatus
+                                                originalFileName
+                                                originalDataDownloadUri
+                                            }
+                                        }
+                                    }
+                                }  
+                            }  
+                        }
+                    }
+                }
+                '''
+        else:
+            query = '''
+                query getProjectSubjects($projectId: ID!, $filters: BaseFilterInput, $sessionFilters: SessionFilterInput) {
+                    node(id: $projectId) {
+                        ... on Project {
+                            id,
+                            name,
+                            description,
+                            canEdit,
+                            patients(metadataFilters: $filters, sessionFilters: $sessionFilters) {
+                                id
+                                name
+                                metadata
+                                sessions {
+                                    id,
+                                    date,
+                                    projectPath,
+                                    metadata
+                                }  
+                            }  
+                        }
+                    }
+                }
+                '''
+        
+        data = self._dispatch_graphql(
+            query,
+            projectId = project_id,
+            filters = subject_metadata_filters,
+            sessionFilters = session_filters
+        )
+
+        return data['node']['patients']
+    
+    def _validate_base_filter_input(self, base_filter):
+        """
+        Validates the format of BaseFilterInput for subject_metadata_filters.
+        Supports recursive validation for logic groups.
+        """
+        if base_filter is None:
+            return
+        if not isinstance(base_filter, dict):
+            raise ValueError("BaseFilterInput must be a dict or None.")
+        # Single filter: must have 'key', 'operator', 'value'
+        if "key" in base_filter:
+            allowed_operators = ["EQ"]  # Extend if backend supports more
+            if "operator" not in base_filter:
+                raise ValueError("Single filter must have 'operator'.")
+            if base_filter["operator"] not in allowed_operators:
+                raise ValueError(f"Invalid operator: {base_filter['operator']}. List of allowed operators: {allowed_operators}")
+            if "value" not in base_filter:
+                raise ValueError("Single filter must have 'value'.")
+            # 'key' and 'value' must be strings
+            if not isinstance(base_filter["key"], str):
+                raise ValueError("'key' must be a string.")
+            if not isinstance(base_filter["value"], str):
+                raise ValueError("'value' must be a string.")
+        # Logic group: must have 'logic' and 'filters'
+        elif "logic" in base_filter:
+            allowed_logics = ["AND", "OR"]
+            if base_filter["logic"] not in allowed_logics:
+                raise ValueError(f"Invalid logic: {base_filter['logic']}. List of allowed logics: {allowed_logics}")
+            if "filters" not in base_filter:
+                raise ValueError("Logic group must have 'filters'.")
+            if not isinstance(base_filter["filters"], list):
+                raise ValueError("'filters' must be a list.")
+            for f in base_filter["filters"]:
+                self._validate_base_filter_input(f)
+        else:
+            raise ValueError("BaseFilterInput must have either 'key' or 'logic'.")
+    
+    def _validate_session_filters(self, session_filters):
+            """
+            Validates the format of session_filters for SessionFilterInput.
+            Expected structure:
+            {
+                "sessionDates": {"startDate": str, "endDate": str},
+                "numSessions": {"min": int, "max": int}
+            }
+            """
+            if session_filters is None:
+                return
+            if not isinstance(session_filters, dict):
+                raise ValueError("session_filters must be a dict or None.")
+            # Validate session_dates
+            if "sessionDates" in session_filters:
+                sd = session_filters["sessionDates"]
+                if not isinstance(sd, dict):
+                    raise ValueError("session_filters['sessionDates'] must be a dict.")
+                for k in sd:
+                    if k not in ("startDate", "endDate"):
+                        raise ValueError(f"Invalid key in sessionDates: {k}")
+                    self._validate_date(sd[k])
+            # Validate num_sessions
+            if "numSessions" in session_filters:
+                ns = session_filters["numSessions"]
+                if not isinstance(ns, dict):
+                    raise ValueError("session_filters['numSessions'] must be a dict.")
+                for k in ns:
+                    if k not in ("min", "max"):
+                        raise ValueError(f"Invalid key in numSessions: {k}")
+                    if ns[k] is not None and not isinstance(ns[k], int):
+                        raise ValueError(f"numSessions['{k}'] must be an int or None.")
+    
+    def getSubjectData(self, subject_id: str):
+        """
+        Retrieve all data from a specific subject, including metadata,
+        associated projects, reports, sessions, clips, and norms.
+
+        Args:
+            subject_id (str): The ID of the subject to retrieve.
+
+        Returns:
+            dict: A dictionary containing the subject's details, including:
+                  - ID, name, and metadata.
+                  - List of sessions with metadata, reports, clips, and additional data.
+        """
+        data = self._dispatch_graphql(
+            '''
+            query getPatient($patientId: ID!) {
+                node(id: $patientId) {
+                    ... on Patient {
+                        id,
+                        name,
+                        metadata,
+                        sessions {
+                            id
+                            projectPath
+                            date
+                            metadata
+                            reports {
+                                id
+                                title
+                                clips {
+                                    id
+                                    title
+                                    created
+                                    projectPath
+                                    uploadStatus
+                                    hasCharts
+                                    additionalData {
+                                        id
+                                        dataType
+                                        uploadStatus
+                                        originalFileName
+                                        originalDataDownloadUri
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ''',
+            patientId=subject_id
+        )
+        return data['node']
+    
     def getProjectSessions(self, project_id: str, start_date: str | None = None, end_date: str | None = None, include_additional_data: bool = False):
         """
         Retrieve all sessions associated with a specific project, optionally filtered by date range.
