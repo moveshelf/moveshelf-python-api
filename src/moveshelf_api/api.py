@@ -1275,20 +1275,20 @@ class MoveshelfApi(object):
                                     reports {
                                         id
                                         title
-                                        clips {
+                                    }
+                                    clips {
+                                        id
+                                        title
+                                        created
+                                        projectPath
+                                        uploadStatus
+                                        hasCharts
+                                        additionalData {
                                             id
-                                            title
-                                            created
-                                            projectPath
+                                            dataType
                                             uploadStatus
-                                            hasCharts
-                                            additionalData {
-                                                id
-                                                dataType
-                                                uploadStatus
-                                                originalFileName
-                                                originalDataDownloadUri
-                                            }
+                                            originalFileName
+                                            originalDataDownloadUri
                                         }
                                     }
                                 }  
@@ -1430,20 +1430,20 @@ class MoveshelfApi(object):
                             reports {
                                 id
                                 title
-                                clips {
+                            }
+                            clips {
+                                id
+                                title
+                                created
+                                projectPath
+                                uploadStatus
+                                hasCharts
+                                additionalData {
                                     id
-                                    title
-                                    created
-                                    projectPath
+                                    dataType
                                     uploadStatus
-                                    hasCharts
-                                    additionalData {
-                                        id
-                                        dataType
-                                        uploadStatus
-                                        originalFileName
-                                        originalDataDownloadUri
-                                    }
+                                    originalFileName
+                                    originalDataDownloadUri
                                 }
                             }
                         }
