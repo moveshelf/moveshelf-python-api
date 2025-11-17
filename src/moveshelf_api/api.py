@@ -1251,7 +1251,7 @@ class MoveshelfApi(object):
         """
         
         # Validate filters
-        self._validate_base_filter_input(subject_metadata_filters)
+        self._validate_filter_dict_input(subject_metadata_filters)
         self._validate_session_filters(session_filters)
             
         if include_additional_data:
@@ -1331,42 +1331,43 @@ class MoveshelfApi(object):
 
         return data['node']['patients']
     
-    def _validate_base_filter_input(self, base_filter):
+    def _validate_filter_dict_input(self, filter_dict):
         """
         Validates the format of BaseFilterInput for subject_metadata_filters.
         Supports recursive validation for logic groups.
         """
-        if base_filter is None:
+        if filter_dict is None:
             return
-        if not isinstance(base_filter, dict):
+        if not isinstance(filter_dict, dict):
             raise ValueError("BaseFilterInput must be a dict or None.")
-        # Single filter: must have 'key', 'operator', 'value'
-        if "key" in base_filter:
+        # Check for invalid mixed structure
+        has_filter_fields = all(filter_dict.get(field) is not None for field in ["key", "operator", "value"])
+        has_logic_fields = all(filter_dict.get(field) is not None for field in ["logic", "filters"])
+
+        if has_filter_fields and has_logic_fields:
+            raise ValueError(
+                "Cannot have MetadataFilter fields (key/operator/value) and FilterLogic fields (logic/filters) together"
+            )
+        
+        if has_filter_fields:
             allowed_operators = ["EQ"]  # Extend if backend supports more
-            if "operator" not in base_filter:
-                raise ValueError("Single filter must have 'operator'.")
-            if base_filter["operator"] not in allowed_operators:
-                raise ValueError(f"Invalid operator: {base_filter['operator']}. List of allowed operators: {allowed_operators}")
-            if "value" not in base_filter:
-                raise ValueError("Single filter must have 'value'.")
+            if filter_dict["operator"] not in allowed_operators:
+                raise ValueError(f"Invalid operator: {filter_dict['operator']}. List of allowed operators: {allowed_operators}")
             # 'key' and 'value' must be strings
-            if not isinstance(base_filter["key"], str):
+            if not isinstance(filter_dict["key"], str):
                 raise ValueError("'key' must be a string.")
-            if not isinstance(base_filter["value"], str):
+            if not isinstance(filter_dict["value"], str):
                 raise ValueError("'value' must be a string.")
-        # Logic group: must have 'logic' and 'filters'
-        elif "logic" in base_filter:
+        elif has_logic_fields:
             allowed_logics = ["AND", "OR"]
-            if base_filter["logic"] not in allowed_logics:
-                raise ValueError(f"Invalid logic: {base_filter['logic']}. List of allowed logics: {allowed_logics}")
-            if "filters" not in base_filter:
-                raise ValueError("Logic group must have 'filters'.")
-            if not isinstance(base_filter["filters"], list):
+            if filter_dict["logic"] not in allowed_logics:
+                raise ValueError(f"Invalid logic: {filter_dict['logic']}. List of allowed logics: {allowed_logics}")
+            if not isinstance(filter_dict["filters"], list):
                 raise ValueError("'filters' must be a list.")
-            for f in base_filter["filters"]:
-                self._validate_base_filter_input(f)
+            for f in filter_dict["filters"]:
+                self._validate_filter_dict_input(f)
         else:
-            raise ValueError("BaseFilterInput must have either 'key' or 'logic'.")
+            raise ValueError("Input dictionary must have either MetadataFilter fields (key/operator/value) or FilterLogic fields (logic/filters).")
     
     def _validate_session_filters(self, session_filters):
             """
