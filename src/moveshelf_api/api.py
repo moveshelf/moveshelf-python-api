@@ -1339,14 +1339,14 @@ class MoveshelfApi(object):
         if filter_dict is None:
             return
         if not isinstance(filter_dict, dict):
-            raise ValueError("BaseFilterInput must be a dict or None.")
+            raise ValueError("metadataFilter dict must be a dict or None.")
         # Check for invalid mixed structure
         has_filter_fields = all(filter_dict.get(field) is not None for field in ["key", "operator", "value"])
         has_logic_fields = all(filter_dict.get(field) is not None for field in ["logic", "filters"])
 
         if has_filter_fields and has_logic_fields:
             raise ValueError(
-                "Cannot have MetadataFilter fields (key/operator/value) and FilterLogic fields (logic/filters) together"
+                "Cannot have metadata filter fields (key/operator/value) and filter logic fields (logic/filters) together"
             )
         
         if has_filter_fields:
@@ -1367,7 +1367,7 @@ class MoveshelfApi(object):
             for f in filter_dict["filters"]:
                 self._validate_filter_dict_input(f)
         else:
-            raise ValueError("Input dictionary must have either MetadataFilter fields (key/operator/value) or FilterLogic fields (logic/filters).")
+            raise ValueError("Input dictionary must have either metadata filter fields (key/operator/value) or filter fields (logic/filters).")
     
     def _validate_session_filters(self, session_filters):
             """
@@ -1381,12 +1381,12 @@ class MoveshelfApi(object):
             if session_filters is None:
                 return
             if not isinstance(session_filters, dict):
-                raise ValueError("session_filters must be a dict or None.")
+                raise ValueError("sessionFilter must be a dict or None.")
             # Validate session_dates
             if "sessionDates" in session_filters:
                 sd = session_filters["sessionDates"]
                 if not isinstance(sd, dict):
-                    raise ValueError("session_filters['sessionDates'] must be a dict.")
+                    raise ValueError("sessionFilter.sessionDates must be a dict.")
                 for k in sd:
                     if k not in ("startDate", "endDate"):
                         raise ValueError(f"Invalid key in sessionDates: {k}")
@@ -1395,7 +1395,7 @@ class MoveshelfApi(object):
             if "numSessions" in session_filters:
                 ns = session_filters["numSessions"]
                 if not isinstance(ns, dict):
-                    raise ValueError("session_filters['numSessions'] must be a dict.")
+                    raise ValueError("sessionFilter.numSessions must be a dict.")
                 for k in ns:
                     if k not in ("min", "max"):
                         raise ValueError(f"Invalid key in numSessions: {k}")
