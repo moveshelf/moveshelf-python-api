@@ -10,10 +10,11 @@ Dependencies:
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from os import path
 import enum
 from typing import TypedDict
+from urllib.parse import urlparse, parse_qs
 
 import urllib3
 from urllib3.util import Retry
@@ -1545,6 +1546,351 @@ class MoveshelfApi(object):
         )
         
         return data['node']['sessions']
+
+    def _convert_date_period_to_date(self, period: str) -> str:
+        """
+        Convert date period enums (Last_week, Last_month, etc.) to actual dates.
+        
+        Args:
+            period (str): Date period enum (e.g., 'Last_week', 'Last_month', 'Last_10_weeks', 'Last_year')
+        
+        Returns:
+            str: Date in YYYY-MM-DD format
+        """
+        end_date = datetime.now()
+        start_date = datetime.now()
+        
+        period_lower = period.lower()
+        
+        if period_lower == 'last_week':
+            start_date = end_date - timedelta(days=7)
+        elif period_lower == 'last_month':
+            # Go back one month
+            if start_date.month == 1:
+                start_date = start_date.replace(year=start_date.year - 1, month=12)
+            else:
+                start_date = start_date.replace(month=start_date.month - 1)
+        elif period_lower == 'last_10_weeks':
+            start_date = end_date - timedelta(days=70)
+        elif period_lower == 'last_year':
+            start_date = start_date.replace(year=start_date.year - 1)
+        else:
+            # If not a recognized period, return as-is
+            return period
+        
+        return start_date.strftime('%Y-%m-%d')
+
+    def getProjectTemplate(self, project_id: str):
+        """
+        Retrieve the project template for a given project.
+
+        Args:
+            project_id (str): The ID of the project.
+
+        Returns:
+            dict: A dictionary containing the project template data, including sessionMetadataTabs and subject metadata templates.
+        """
+        data = self._dispatch_graphql(
+            '''
+            query getProjectTemplate($projectId: ID!) {
+                node(id: $projectId) {
+                    ... on Project {
+                        id,
+                        name,
+                        template {
+                            name,
+                            data
+                        }
+                    }
+                }
+            }
+            ''',
+            projectId=project_id
+        )
+        
+        if data['node']['template']:
+            return json.loads(data['node']['template']['data'])
+        return None
+
+    def _parse_session_overview_url(self, session_overview_url: str, project_id: str):
+        """
+        Parse a session overview URL and extract metadata filters.
+
+        Args:
+            session_overview_url (str): The full URL of the session overview page with filters applied.
+            project_id (str): The ID of the project (needed to fetch the template).
+
+        Returns:
+            dict: A dictionary with the following keys:
+                - 'start_date' (str | None): Start date for filtering sessions, or None if not specified.
+                - 'end_date' (str | None): End date for filtering sessions, or None if not specified.
+                - 'session_metadata_filters' (list): List of session metadata filters.
+                - 'patient_metadata_filters' (list): List of patient metadata filters.
+
+        Example:
+            url = "https://api.moveshelf.com/project/ABC123/sessions?startDate=2025-01-01&endDate=2025-12-31&subject-sex=Male&session-type=Gait"
+            api._parse_session_overview_url(url, "ABC123")
+            {
+                'start_date': '2025-01-01',
+                'end_date': '2025-12-31',
+                'session_metadata_filters': [{'key': 'session-type', 'operator': 'IN', 'values': ['Gait']}],
+                'patient_metadata_filters': [{'key': 'subject-sex', 'operator': 'IN', 'values': ['Male']}]
+            }
+        """
+        # Parse the URL
+        parsed_url = urlparse(session_overview_url)
+        query_params = parse_qs(parsed_url.query)
+
+        # Extract date filters
+        start_date = None
+        end_date = None
+        if 'startDate' in query_params:
+            raw_start = query_params['startDate'][0]
+            # Check if it's a date period enum (e.g., Last_year)
+            if raw_start and not raw_start[0].isdigit():
+                start_date = self._convert_date_period_to_date(raw_start)
+                # When using period enum, end date is implicitly today
+                end_date = datetime.now().strftime('%Y-%m-%d')
+            else:
+                start_date = raw_start
+        if 'endDate' in query_params:
+            end_date = query_params['endDate'][0]
+
+        # Fetch project template to determine field types
+        template = self.getProjectTemplate(project_id)
+        if not template:
+            logger.warning(f"No template found for project {project_id}")
+            return {
+                'start_date': start_date,
+                'end_date': end_date,
+                'session_metadata_filters': [],
+                'patient_metadata_filters': []
+            }
+
+        # Build maps of session and patient metadata fields
+        session_fields = {}
+        patient_fields = {}
+
+        # Extract session metadata fields from sessionMetadataTabs
+        for tab in template.get('sessionMetadataTabs', []):
+            for field_key in tab.get('template', {}).keys():
+                session_fields[field_key] = True
+
+        # Extract patient metadata fields from template
+        for field_key in template.get('template', {}).keys():
+            patient_fields[field_key] = True
+
+        # Parse metadata filters from query parameters
+        session_metadata_filters = []
+        patient_metadata_filters = []
+
+        for param_key, param_values in query_params.items():
+            # Skip date parameters
+            if param_key in ['startDate', 'endDate']:
+                continue
+
+            # Determine if this is a session or patient metadata field
+            if param_key in session_fields:
+                # Session metadata filter
+                values = param_values if isinstance(param_values, list) else [param_values]
+                # Handle "(Select all)" special case
+                if '(Select all)' in values:
+                    continue  # Skip this filter as it means no filtering
+                session_metadata_filters.append({
+                    'key': param_key,
+                    'operator': 'IN',
+                    'values': values
+                })
+            elif param_key in patient_fields:
+                # Patient metadata filter
+                values = param_values if isinstance(param_values, list) else [param_values]
+                if '(Select all)' in values:
+                    continue
+                patient_metadata_filters.append({
+                    'key': param_key,
+                    'operator': 'IN',
+                    'values': values
+                })
+            else:
+                # Unknown field, log warning
+                logger.warning(f"Unknown metadata field '{param_key}' in URL query parameters")
+
+        return {
+            'start_date': start_date,
+            'end_date': end_date,
+            'session_metadata_filters': session_metadata_filters,
+            'patient_metadata_filters': patient_metadata_filters
+        }
+
+    def getFilteredProjectSessions(
+        self,
+        project_id: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        session_metadata_filters: list[dict] | None = None,
+        patient_metadata_filters: list[dict] | None = None,
+        session_overview_url: str | None = None,
+        include_additional_data: bool = False,
+        limit: int = 500
+    ):
+        """
+        Retrieve filtered sessions from a project with optional metadata filtering.
+
+        Args:
+            project_id (str): The ID of the project to retrieve sessions for.
+            start_date (str, optional): Start date for filtering sessions in `YYYY-MM-DD` format. Defaults to None.
+            end_date (str, optional): End date for filtering sessions in `YYYY-MM-DD` format. Defaults to None.
+            session_metadata_filters (list[dict], optional): List of session metadata filters. Each filter should be a dict with:
+                - 'key' (str): Metadata field key (e.g., 'session-type')
+                - 'operator' (str): Filter operator ('IN', 'EQ', 'BETWEEN', 'ALL')
+                - 'value' (str, optional): Single value for EQ operator
+                - 'values' (list, optional): List of values for IN/ALL/BETWEEN operators
+            patient_metadata_filters (list[dict], optional): List of patient metadata filters with same structure as session_metadata_filters.
+            session_overview_url (str, optional): URL of a filtered session overview page. If provided, filters will be extracted from the URL.
+            include_additional_data (bool, optional): Whether to include clips and additional data. Defaults to False.
+            limit (int, optional): Maximum number of sessions to return. Defaults to 500.
+
+        Returns:
+            list: A list of session dictionaries, each containing session details such as ID, date, project path,
+                  metadata, patient information, and optionally clips with additional data.
+
+        Raises:
+            ValueError: If date format is invalid or if both explicit filters and URL are provided.
+
+        Example:
+            # Using explicit filters
+            sessions = api.getFilteredProjectSessions(
+                project_id="ABC123",
+                start_date="2025-01-01",
+                end_date="2025-12-31",
+                session_metadata_filters=[{'key': 'session-type', 'operator': 'IN', 'values': ['Gait']}],
+                patient_metadata_filters=[{'key': 'subject-sex', 'operator': 'IN', 'values': ['Male']}]
+             )
+
+            # Using session overview URL
+            url = "https://api.moveshelf.com/project/ABC123/sessions?startDate=2025-01-01&endDate=2025-12-31&subject-sex=Male&session-type=Gait"
+            sessions = api.getFilteredProjectSessions(project_id="ABC123", session_overview_url=url)
+        """
+        # If session_overview_url is provided, extract filters from it
+        if session_overview_url:
+            if session_metadata_filters or patient_metadata_filters or start_date or end_date:
+                raise ValueError(
+                    "Cannot provide both session_overview_url and explicit filters. "
+                    "Use either session_overview_url OR explicit start_date/end_date/metadata filters."
+                )
+
+            parsed = self._parse_session_overview_url(session_overview_url, project_id)
+            start_date = parsed['start_date']
+            end_date = parsed['end_date']
+            session_metadata_filters = parsed['session_metadata_filters']
+            patient_metadata_filters = parsed['patient_metadata_filters']
+
+        # Validate dates
+        self._validate_date(start_date)
+        self._validate_date(end_date)
+
+        # Build the GraphQL query
+        if include_additional_data:
+            query = '''
+                query getFilteredProjectSessions(
+                    $projectId: ID!,
+                    $startDate: DateTime,
+                    $endDate: DateTime,
+                    $limit: Int,
+                    $metadataFilters: [SessionMetadataFilterInput!],
+                    $patientMetadataFilters: [PatientMetadataFilterInput!]
+                ) {
+                    node(id: $projectId) {
+                         ... on Project {
+                            id,
+                            name,
+                            description,
+                            canEdit,
+                            recentSessions(
+                                startDate: $startDate,
+                                endDate: $endDate,
+                                limit: $limit,
+                                metadataFilters: $metadataFilters,
+                                patientMetadataFilters: $patientMetadataFilters
+                            ) {
+                                id,
+                                date,
+                                projectPath,
+                                metadata,
+                                patient {
+                                    id,
+                                    name,
+                                    metadata
+                                }
+                                clips {
+                                    id
+                                    title
+                                    created
+                                    projectPath
+                                    uploadStatus
+                                    hasCharts
+                                    additionalData {
+                                        id
+                                        dataType
+                                        uploadStatus
+                                        originalFileName
+                                        originalDataDownloadUri
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            '''
+        else:
+            query = '''
+                query getFilteredProjectSessions(
+                    $projectId: ID!,
+                    $startDate: DateTime,
+                    $endDate: DateTime,
+                    $limit: Int,
+                    $metadataFilters: [SessionMetadataFilterInput!],
+                    $patientMetadataFilters: [PatientMetadataFilterInput!]
+                ) {
+                    node(id: $projectId) {
+                         ... on Project {
+                            id,
+                            name,
+                            description,
+                            canEdit,
+                            recentSessions(
+                                startDate: $startDate,
+                                endDate: $endDate,
+                                limit: $limit,
+                                metadataFilters: $metadataFilters,
+                                patientMetadataFilters: $patientMetadataFilters
+                            ) {
+                                id,
+                                date,
+                                projectPath,
+                                metadata,
+                                patient {
+                                    id,
+                                    name,
+                                    metadata
+                                }
+                            }
+                        }
+                    }
+                }
+            '''
+
+        data = self._dispatch_graphql(
+            query,
+            projectId=project_id,
+            startDate=start_date,
+            endDate=end_date,
+            limit=limit,
+            metadataFilters=session_metadata_filters,
+            patientMetadataFilters=patient_metadata_filters
+        )
+
+        return data['node']['recentSessions']
 
     def getSubjectDetails(self, subject_id):
         """
