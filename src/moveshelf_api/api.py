@@ -1403,6 +1403,39 @@ class MoveshelfApi(object):
                     if ns[k] is not None and not isinstance(ns[k], int):
                         raise ValueError(f"numSessions['{k}'] must be an int or None.")
     
+    def _validate_metadata_filters_list(self, filters, field_name):
+        """Validate metadata filter lists provided by users."""
+        if filters is None:
+            return
+        if not isinstance(filters, list):
+            raise ValueError(f"{field_name} must be a list or None.")
+
+        allowed_operators = {"EQ", "IN", "BETWEEN", "ALL"}
+        for entry in filters:
+            if not isinstance(entry, dict):
+                raise ValueError(f"Each entry in {field_name} must be a dict.")
+
+            key = entry.get("key")
+            operator = entry.get("operator")
+            if not key or not isinstance(key, str):
+                raise ValueError(f"Each {field_name} entry requires a string 'key'.")
+            if not operator or not isinstance(operator, str):
+                raise ValueError(f"Each {field_name} entry requires a string 'operator'.")
+            if operator not in allowed_operators:
+                raise ValueError(f"Invalid operator '{operator}' in {field_name}. Allowed operators: {sorted(allowed_operators)}")
+
+            if operator == "EQ":
+                if "value" not in entry:
+                    raise ValueError(f"{field_name} entries using 'EQ' must include 'value'.")
+                if entry["value"] is None:
+                    raise ValueError(f"{field_name} 'value' cannot be None.")
+            else:
+                values = entry.get("values")
+                if not isinstance(values, list) or len(values) == 0:
+                    raise ValueError(f"{field_name} entries using '{operator}' must include a non-empty 'values' list.")
+                if operator == "BETWEEN" and len(values) != 2:
+                    raise ValueError(f"{field_name} 'BETWEEN' filters must provide exactly two values.")
+
     def getSubjectData(self, subject_id: str):
         """
         Retrieve all data from a specific subject, including metadata,
@@ -1788,6 +1821,8 @@ class MoveshelfApi(object):
         # Validate dates
         self._validate_date(start_date)
         self._validate_date(end_date)
+        self._validate_metadata_filters_list(session_metadata_filters, "session_metadata_filters")
+        self._validate_metadata_filters_list(patient_metadata_filters, "patient_metadata_filters")
 
         # Build the GraphQL query
         if include_additional_data:
