@@ -7,10 +7,12 @@ Dependencies:
     - Third-party modules: `requests`, `six`, `enum` (optional), `crcmod`, `mypy_extensions`
 """
 
+from ast import operator
 import json
 import logging
 import re
 from datetime import datetime, timedelta
+import calendar
 from os import path
 import enum
 from typing import TypedDict
@@ -1580,7 +1582,7 @@ class MoveshelfApi(object):
         
         return data['node']['sessions']
 
-    def _convert_date_period_to_date(self, period: str) -> str:
+    def _convert_date_period_to_date(self, period: str) -> str | bool:
         """
         Convert date period enums (Last_week, Last_month, etc.) to actual dates.
         
@@ -1588,28 +1590,36 @@ class MoveshelfApi(object):
             period (str): Date period enum (e.g., 'Last_week', 'Last_month', 'Last_10_weeks', 'Last_year')
         
         Returns:
-            str: Date in YYYY-MM-DD format
+            str | bool: Date in YYYY-MM-DD format or False if the period is not recognized
         """
+        if period[0].isdigit():
+            # If it starts with a digit, we assume it's already a date string and return as-is
+            return period
         end_date = datetime.now()
         start_date = datetime.now()
         
         period_lower = period.lower()
-        
-        if period_lower == 'last_week':
-            start_date = end_date - timedelta(days=7)
-        elif period_lower == 'last_month':
-            # Go back one month
-            if start_date.month == 1:
-                start_date = start_date.replace(year=start_date.year - 1, month=12)
-            else:
-                start_date = start_date.replace(month=start_date.month - 1)
-        elif period_lower == 'last_10_weeks':
-            start_date = end_date - timedelta(days=70)
-        elif period_lower == 'last_year':
-            start_date = start_date.replace(year=start_date.year - 1)
-        else:
-            # If not a recognized period, return as-is
-            return period
+        match period_lower:
+            case 'last_week':
+                start_date = end_date - timedelta(days=7)
+            case 'last_month':
+                # Go back one month, adjust day if previous month has fewer days
+                if start_date.month == 1:
+                    prev_year = start_date.year - 1
+                    prev_month = 12
+                else:
+                    prev_year = start_date.year
+                    prev_month = start_date.month - 1
+                last_day = calendar.monthrange(prev_year, prev_month)[1]
+                day = min(start_date.day, last_day)
+                start_date = start_date.replace(year=prev_year, month=prev_month, day=day)
+            case 'last_10_weeks':
+                start_date = end_date - timedelta(days=70)
+            case 'last_year':
+                start_date = start_date.replace(year=start_date.year - 1)
+            case _:
+                # If not a recognized period, return as-is
+                return False
         
         return start_date.strftime('%Y-%m-%d')
 
@@ -1674,76 +1684,105 @@ class MoveshelfApi(object):
         parsed_url = urlparse(session_overview_url)
         query_params = parse_qs(parsed_url.query)
 
-        # Extract date filters
-        start_date = None
-        end_date = None
-        if 'startDate' in query_params:
-            raw_start = query_params['startDate'][0]
-            # Check if it's a date period enum (e.g., Last_year)
-            if raw_start and not raw_start[0].isdigit():
-                start_date = self._convert_date_period_to_date(raw_start)
-                # When using period enum, end date is implicitly today
-                end_date = datetime.now().strftime('%Y-%m-%d')
-            else:
-                start_date = raw_start
-        if 'endDate' in query_params:
-            end_date = query_params['endDate'][0]
-
         # Fetch project template to determine field types
         template = self.getProjectTemplate(project_id)
         if not template:
             logger.warning(f"No template found for project {project_id}")
             return {
-                'start_date': start_date,
-                'end_date': end_date,
+                'start_date': None,
+                'end_date': None,
                 'session_metadata_filters': [],
                 'patient_metadata_filters': []
             }
 
         # Build maps of session and patient metadata fields
-        session_fields = {}
-        patient_fields = {}
+        session_fields= set()
+        patient_fields = set()
 
         # Extract session metadata fields from sessionMetadataTabs
         for tab in template.get('sessionMetadataTabs', []):
             for field_key in tab.get('template', {}).keys():
-                session_fields[field_key] = True
+                session_fields.add(field_key)
 
         # Extract patient metadata fields from template
         for field_key in template.get('template', {}).keys():
-            patient_fields[field_key] = True
+            patient_fields.add(field_key)
 
         # Parse metadata filters from query parameters
         session_metadata_filters = []
         patient_metadata_filters = []
+        
+        # Initialize date variables
+        start_date = None
+        end_date = None
 
         for param_key, param_values in query_params.items():
-            # Skip date parameters
-            if param_key in ['startDate', 'endDate']:
+
+            if param_key == 'startDate':
+                # try to convert startDate if it's a date period enum (e.g., Last_year)
+                converted_start = self._convert_date_period_to_date(query_params['startDate'][0])
+                if converted_start:
+                    start_date = converted_start
+                    # When using period enum, end date is implicitly today if not explicitly provided
+                    if end_date is None:
+                        end_date = datetime.now().strftime('%Y-%m-%d')
                 continue
 
-            # Determine if this is a session or patient metadata field
+            if param_key == 'endDate':
+                end_date = query_params['endDate'][0]
+                continue
+
+            # For session or patient metadata field, first determine operator 
+            values = param_values if isinstance(param_values, list) else [param_values]
+
+            if '(Select all)' in values:
+                continue  # Skip this filter as it means no filtering
+            
+            # Determine the operator and process values
+            operator = 'IN'  # Default
+            filter_values = values.copy()
+            
+            if len(values) == 1:
+                # Single value - could be a date period enum, date string, or regular value
+                converted = self._convert_date_period_to_date(values[0])
+                if converted and converted != values[0]:
+                    # It's a period enum - convert to BETWEEN with start=converted, end=today
+                    operator = 'BETWEEN'
+                    filter_values = [converted, datetime.now().strftime('%Y-%m-%d')]
+                else:
+                    # It's a regular value or already a date string - use EQ operator
+                    operator = 'EQ'
+            elif len(values) == 2:
+                # Two values - check if both are dates (or can be converted)
+                # In practice, same key shouldn't mix dates and non-dates, but we check both for safety
+                conv1 = self._convert_date_period_to_date(values[0])
+                conv2 = self._convert_date_period_to_date(values[1])
+                
+                if conv1 and conv2:
+                    # Both are dates - use BETWEEN
+                    operator = 'BETWEEN'
+                    filter_values = [conv1, conv2]
+                # else: keep operator as 'IN'
+
+            # Build the filter dict
+            if operator == 'EQ':
+                filter_dict = {
+                    'key': param_key,
+                    'operator': operator,
+                    'value': filter_values[0]
+                }
+            else:
+                filter_dict = {
+                    'key': param_key,
+                    'operator': operator,
+                    'values': filter_values
+                }
+
+            # Add to appropriate filter list based on field type
             if param_key in session_fields:
-                # Session metadata filter
-                values = param_values if isinstance(param_values, list) else [param_values]
-                # Handle "(Select all)" special case
-                if '(Select all)' in values:
-                    continue  # Skip this filter as it means no filtering
-                session_metadata_filters.append({
-                    'key': param_key,
-                    'operator': 'IN',
-                    'values': values
-                })
+                session_metadata_filters.append(filter_dict)
             elif param_key in patient_fields:
-                # Patient metadata filter
-                values = param_values if isinstance(param_values, list) else [param_values]
-                if '(Select all)' in values:
-                    continue
-                patient_metadata_filters.append({
-                    'key': param_key,
-                    'operator': 'IN',
-                    'values': values
-                })
+                patient_metadata_filters.append(filter_dict)
             else:
                 # Unknown field, log warning
                 logger.warning(f"Unknown metadata field '{param_key}' in URL query parameters")
