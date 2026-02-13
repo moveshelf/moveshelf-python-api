@@ -2077,20 +2077,65 @@ class MoveshelfApi(object):
         )
         return data['node']
 
-    def getSessionById(self, session_id):
+    def getSessionById(self, session_id, include_additional_data: bool = False):
         """
         Retrieve detailed information about a session by its ID.
 
         Args:
             session_id (str): The ID of the session to retrieve.
+            include_additional_data (bool, optional): Whether to include additional data files for each clip. Defaults to False.
 
         Returns:
             dict: A dictionary containing session details, including:
                   - ID, projectPath, and metadata.
                   - Associated project, clips, norms, and patient information.
+                  - If include_additional_data is True, also includes additionalData for each clip with download URIs.
         """
-        data = self._dispatch_graphql(
+        if include_additional_data:
+            query = '''
+            query getSession($sessionId: ID!) {
+                node(id: $sessionId) {
+                    ... on Session {
+                        id,
+                        projectPath,
+                        metadata,
+                        project {
+                            id
+                            name
+                            canEdit
+                            norms {
+                                id
+                                name
+                                status
+                            }
+                        }
+                        clips {
+                            id
+                            title
+                            created
+                            projectPath
+                            uploadStatus
+                            hasCharts
+                            hasVideo
+                            additionalData {
+                                id
+                                dataType
+                                uploadStatus
+                                originalFileName
+                                originalDataDownloadUri
+                            }
+                        }
+                        patient {
+                            id
+                            name
+                            metadata
+                        }
+                    }
+                }
+            }
             '''
+        else:
+            query = '''
             query getSession($sessionId: ID!) {
                 node(id: $sessionId) {
                     ... on Session {
@@ -2124,9 +2169,9 @@ class MoveshelfApi(object):
                     }
                 }
             }
-            ''',
-            sessionId=session_id
-        )
+            '''
+        
+        data = self._dispatch_graphql(query, sessionId=session_id)
         return data['node']
 
     def generateAutomaticInteractiveReports(self, session_id, norm_id=None):
