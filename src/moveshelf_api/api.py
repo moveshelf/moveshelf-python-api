@@ -1405,38 +1405,38 @@ class MoveshelfApi(object):
                     if ns[k] is not None and not isinstance(ns[k], int):
                         raise ValueError(f"numSessions['{k}'] must be an int or None.")
     
-    def _validate_metadata_filters_list(self, filters, field_name):
+    def _validate_metadata_filters_list(self, filters):
         """Validate metadata filter lists provided by users."""
         if filters is None:
             return
         if not isinstance(filters, list):
-            raise ValueError(f"{field_name} must be a list or None.")
+            raise ValueError("Filters must be a list or None.")
 
         allowed_operators = {"EQ", "IN", "BETWEEN", "ALL"}
         for entry in filters:
             if not isinstance(entry, dict):
-                raise ValueError(f"Each entry in {field_name} must be a dict.")
+                raise ValueError("Each entry in filters must be a dict.")
 
             key = entry.get("key")
             operator = entry.get("operator")
             if not key or not isinstance(key, str):
-                raise ValueError(f"Each {field_name} entry requires a string 'key'.")
+                raise ValueError("Each filter entry requires a string 'key'.")
             if not operator or not isinstance(operator, str):
-                raise ValueError(f"Each {field_name} entry requires a string 'operator'.")
+                raise ValueError("Each filter entry requires a string 'operator'.")
             if operator not in allowed_operators:
-                raise ValueError(f"Invalid operator '{operator}' in {field_name}. Allowed operators: {sorted(allowed_operators)}")
+                raise ValueError(f"Invalid operator '{operator}' in filters. Allowed operators: {sorted(allowed_operators)}")
 
             if operator == "EQ":
                 if "value" not in entry:
-                    raise ValueError(f"{field_name} entries using 'EQ' must include 'value'.")
+                    raise ValueError("Filters entries using 'EQ' must include 'value'.")
                 if entry["value"] is None:
-                    raise ValueError(f"{field_name} 'value' cannot be None.")
+                    raise ValueError("Filters 'value' cannot be None.")
             else:
                 values = entry.get("values")
                 if not isinstance(values, list) or len(values) == 0:
-                    raise ValueError(f"{field_name} entries using '{operator}' must include a non-empty 'values' list.")
+                    raise ValueError(f"Filters entries using '{operator}' must include a non-empty 'values' list.")
                 if operator == "BETWEEN" and len(values) != 2:
-                    raise ValueError(f"{field_name} 'BETWEEN' filters must provide exactly two values.")
+                    raise ValueError("Filters 'BETWEEN' filters must provide exactly two values.")
 
     def getSubjectData(self, subject_id: str):
         """
@@ -1713,8 +1713,8 @@ class MoveshelfApi(object):
         patient_metadata_filters = []
         
         # Initialize date variables
-        start_date = None
-        end_date = None
+        start_date = (datetime.now() - timedelta(days=70)).strftime('%Y-%m-%d')
+        end_date = datetime.now().strftime('%Y-%m-%d')
 
         for param_key, param_values in query_params.items():
 
@@ -1723,9 +1723,6 @@ class MoveshelfApi(object):
                 converted_start = self._convert_date_period_to_date(query_params['startDate'][0])
                 if converted_start:
                     start_date = converted_start
-                    # When using period enum, end date is implicitly today if not explicitly provided
-                    if end_date is None:
-                        end_date = datetime.now().strftime('%Y-%m-%d')
                 continue
 
             if param_key == 'endDate':
@@ -1860,8 +1857,8 @@ class MoveshelfApi(object):
         # Validate dates
         self._validate_date(start_date)
         self._validate_date(end_date)
-        self._validate_metadata_filters_list(session_metadata_filters, "session_metadata_filters")
-        self._validate_metadata_filters_list(patient_metadata_filters, "patient_metadata_filters")
+        self._validate_metadata_filters_list(session_metadata_filters)
+        self._validate_metadata_filters_list(patient_metadata_filters)
 
         # Build the GraphQL query
         if include_additional_data:
