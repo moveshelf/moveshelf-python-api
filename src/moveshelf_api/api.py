@@ -131,6 +131,40 @@ class MoveshelfApi(object):
             timeout=urllib3.Timeout(connect=10, read=timeout)
         )
 
+    def _add_feature_flags_to_projects(self, projects):
+        """
+        Extract and add feature flag data to projects, specifically excludeProcessingFiles.
+        This method parses the projectConfiguration field and extracts the excludeProcessingFiles
+        list from featureFlags, adding it directly to each project dict for easy access during uploads.
+
+        Args:
+            projects (list): List of project dictionaries containing projectConfiguration field.
+
+        Returns:
+            list: The updated list of projects with excludeProcessingFiles field added.
+        """
+        for project in projects:
+
+            exclude_processing_files = None
+
+            try:
+                if configuration := project.get("projectConfiguration", {}).get("data"):
+                    # Parse the JSON configuration data
+                    config_data = json.loads(configuration)
+                    logging.warning(config_data)
+                    feature_flags = config_data.get("featureFlags", {})
+                    exclude_processing_files = feature_flags.get("excludeProcessingFiles")
+            except Exception:
+                # If parsing fails, leave excludeProcessingFiles as None
+                pass
+
+            # Add the extracted value to the project dict
+            project["excludeProcessingFiles"] = exclude_processing_files
+
+        return projects
+
+
+
     def getProjectDatasets(self, project_id):
         """
         Retrieve datasets for a given project.
@@ -165,7 +199,7 @@ class MoveshelfApi(object):
         Retrieve all projects associated with the current user.
 
         Returns:
-            list: A list of dictionaries, each containing the `name` and `id` of a project.
+            list: A list of dictionaries, each containing the `name`, `id`, and `excludeProcessingFiles` of a project.
         """
         data = self._dispatch_graphql(
             '''
@@ -174,12 +208,20 @@ class MoveshelfApi(object):
                     projects {
                         name
                         id
+                        projectConfiguration {
+                            data
+                        }
                     }
                 }
             }
             '''
         )
-        return [{k: v for k, v in p.items() if k in ['name', 'id']} for p in data['viewer']['projects']]
+
+        # Process projects to extract feature flags
+        projects = self._add_feature_flags_to_projects(data['viewer']['projects'])
+        
+        # Return only the relevant fields
+        return [{k: v for k, v in p.items() if k in ['name', 'id', 'excludeProcessingFiles']} for p in projects]
 
     def createClip(self, project, metadata=Metadata()):
         """
@@ -305,12 +347,22 @@ class MoveshelfApi(object):
 
         logger.info("Uploading %s", file_path)
 
+        headers = {"Content-Type": "application/octet-stream"}
+
         metadata["title"] = metadata.get("title", path.basename(file_path))
         metadata["allowDownload"] = metadata.get("allowDownload", False)
         metadata["allowUnlistedAccess"] = metadata.get("allowUnlistedAccess", False)
 
         if metadata.get("startTimecode"):
             self._validateAndUpdateTimecode(metadata["startTimecode"])
+
+        # Check if file should skip processing based on project configuration
+        if exclude_processing_files := project.get("excludeProcessingFiles"):
+            for ext in exclude_processing_files:
+                if file_path.endswith(ext):
+                    headers['X-Goog-Meta-Skip-Processing'] = "true"
+                    break
+
 
         creation_response = self._createClip(
             project,
@@ -332,7 +384,7 @@ class MoveshelfApi(object):
                 "PUT",
                 creation_response["uploadUrl"],
                 body=file_data,
-                headers={"Content-Type": "application/octet-stream"},
+                headers=headers,
             )
             if response.status >= 400:
                 raise urllib3.exceptions.HTTPError(
