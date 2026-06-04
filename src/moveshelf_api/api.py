@@ -2006,6 +2006,7 @@ class MoveshelfApi(object):
                         sessions {
                             id
                             projectPath
+                            date
                             clips {
                                 id
                                 title
@@ -2084,7 +2085,7 @@ class MoveshelfApi(object):
 
         Returns:
             dict: A dictionary containing session details, including:
-                  - ID, projectPath, and metadata.
+                  - ID, date, projectPath, and metadata.
                   - Associated project, clips, norms, and patient information.
                   - If include_additional_data is True, also includes additionalData for each clip with download URIs.
         """
@@ -2095,6 +2096,7 @@ class MoveshelfApi(object):
                     ... on Session {
                         id,
                         projectPath,
+                        date,
                         metadata,
                         project {
                             id
@@ -2138,6 +2140,7 @@ class MoveshelfApi(object):
                     ... on Session {
                         id,
                         projectPath,
+                        date,
                         metadata,
                         project {
                             id
