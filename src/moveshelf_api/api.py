@@ -27,19 +27,6 @@ from .utils.hash import calculate_file_md5, calculate_stream_md5, calculate_file
 logger = logging.getLogger('moveshelf-api')
 
 class TimecodeFramerate(enum.Enum):
-    """
-    Enum representing supported video framerates for timecodes.
-
-    Attributes:
-        FPS_24 (str): 24 frames per second.
-        FPS_25 (str): 25 frames per second.
-        FPS_29_97 (str): 29.97 frames per second.
-        FPS_30 (str): 30 frames per second.
-        FPS_50 (str): 50 frames per second.
-        FPS_59_94 (str): 59.94 frames per second.
-        FPS_60 (str): 60 frames per second.
-        FPS_1000 (str): 1000 frames per second.
-    """
     FPS_24 = '24'
     FPS_25 = '25'
     FPS_29_97 = '29.97'
@@ -1655,6 +1642,41 @@ class MoveshelfApi(object):
             return json.loads(data['node']['template']['data'])
         return None
 
+    def getProjectInfo(self, project_id: str):
+        """
+        Retrieve the project template and configuration for a given project.
+
+        Args:
+            project_id (str): The ID of the project.
+
+        Returns:
+            dict: A dictionary containing the project ID, name, template data, and project configuration data.
+        """
+        data = self._dispatch_graphql(
+            '''
+            query getProjectTemplate($projectId: ID!) {
+                node(id: $projectId) {
+                    ... on Project {
+                        id
+                        name
+                        template {
+                            name
+                            data
+                        }
+                        projectConfiguration {
+                            id
+                            name
+                            data
+                        }
+                    }
+                }
+            }
+            ''',
+            projectId=project_id
+        )
+        
+        return data['node']
+    
     def _parse_session_overview_url(self, session_overview_url: str, project_id: str):
         """
         Parse a session overview URL and extract metadata filters.
@@ -1826,7 +1848,8 @@ class MoveshelfApi(object):
         Raises:
             ValueError: If date format is invalid or if both explicit filters and URL are provided.
 
-        Example:
+        Example::
+
             # Using explicit filters
             sessions = api.getFilteredProjectSessions(
                 project_id="ABC123",
@@ -1834,7 +1857,7 @@ class MoveshelfApi(object):
                 end_date="2025-12-31",
                 session_metadata_filters=[{'key': 'session-type', 'operator': 'IN', 'values': ['Gait']}],
                 patient_metadata_filters=[{'key': 'subject-sex', 'operator': 'IN', 'values': ['Male']}]
-             )
+            )
 
             # Using session overview URL
             url = "https://api.moveshelf.com/project/ABC123/sessions?startDate=2025-01-01&endDate=2025-12-31&subject-sex=Male&session-type=Gait"
