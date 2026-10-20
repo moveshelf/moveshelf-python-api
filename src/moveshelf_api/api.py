@@ -2475,8 +2475,13 @@ class MoveshelfApi(object):
             )
 
             if response.status >= 400:
+                # proxies replace the reason phrase with the standard one, the server's message is in the body
+                try:
+                    reason = "; ".join(e["message"] for e in json.loads(response.data)["errors"])
+                except (ValueError, KeyError, TypeError):
+                    reason = response.reason
                 raise urllib3.exceptions.HTTPError(
-                    f"GraphQL request failed with status {response.status}: {response.reason}"
+                    f"GraphQL request failed with status {response.status}: {reason}"
                 )
 
             json_data = json.loads(response.data.decode("utf-8"))
