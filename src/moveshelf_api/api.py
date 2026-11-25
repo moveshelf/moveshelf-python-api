@@ -682,7 +682,7 @@ class MoveshelfApi(object):
         Args:
             session_id (str): The ID of the session to update.
             session_name (str): The new name for the session to update.
-            session_metadata (str): The metadata to save for the session.
+            session_metadata (str): The metadata to save for the session. Can contain both 'metadata' and 'conditionMetadata' fields.
             skip_validation (bool, optional): True to skip metadata validation, False otherwise. Defaults to False.
             session_date (str, optional): The new date for the session to update. If empty, skips update of session date. Defaults to None.
             previous_updated_at (str, optional): The previous updated in ISO format. If empty, force update. Defaults to None.
@@ -695,39 +695,73 @@ class MoveshelfApi(object):
         # 2) if there are no validation errors, retrieve existing metadata, merge existing metadata and imported
         # metadata to update only empty fields, and update metadata. Otherwise we print validation errors and skip the update
 
-        my_imported_metadata = json.loads(session_metadata).get("metadata", {})
+        imported_data = json.loads(session_metadata)
+        my_imported_metadata = imported_data.get("metadata", {})
+        my_imported_condition_metadata = imported_data.get("conditionMetadata", {})
 
         # Validate metadata only if skip_validation == False
         if not skip_validation:
-            data = self._dispatch_graphql(
-                '''
-                    query MetadataValidator(
-                        $importedMetadata: String!,
-                        $whichTabToValidate: String!,
-                        $sessionId: String,
-                        $subjectId: String
-                        ) {
-                        metadataValidator(
-                            importedMetadata: $importedMetadata,
-                            whichTabToValidate: $whichTabToValidate,
-                            sessionId: $sessionId,
-                            subjectId: $subjectId
-                        )
-                        {
-                        validationErrors
-                        }
-                        }
-                ''',
-                importedMetadata=json.dumps(my_imported_metadata),
-                whichTabToValidate="sessionMetadata",
-                sessionId=session_id
-            )
+            if my_imported_metadata:
+                data = self._dispatch_graphql(
+                    '''
+                        query MetadataValidator(
+                            $importedMetadata: String!,
+                            $whichTabToValidate: String!,
+                            $sessionId: String,
+                            $subjectId: String
+                            ) {
+                            metadataValidator(
+                                importedMetadata: $importedMetadata,
+                                whichTabToValidate: $whichTabToValidate,
+                                sessionId: $sessionId,
+                                subjectId: $subjectId
+                            )
+                            {
+                            validationErrors
+                            }
+                            }
+                    ''',
+                    importedMetadata=json.dumps(my_imported_metadata),
+                    whichTabToValidate="sessionMetadata",
+                    sessionId=session_id
+                )
 
-            if len(data["metadataValidator"]["validationErrors"]) > 0:
-                print("The following errors with session metadata were found:")
-                for validation_error in data["metadataValidator"]["validationErrors"]:
-                    print(validation_error)
-                return data["metadataValidator"]["validationErrors"]
+                if len(data["metadataValidator"]["validationErrors"]) > 0:
+                    print("The following errors with session metadata were found:")
+                    for validation_error in data["metadataValidator"]["validationErrors"]:
+                        print(validation_error)
+                    return data["metadataValidator"]["validationErrors"]
+
+            if my_imported_condition_metadata:
+                data = self._dispatch_graphql(
+                    '''
+                        query MetadataValidator(
+                            $importedMetadata: String!,
+                            $whichTabToValidate: String!,
+                            $sessionId: String,
+                            $subjectId: String
+                            ) {
+                            metadataValidator(
+                                importedMetadata: $importedMetadata,
+                                whichTabToValidate: $whichTabToValidate,
+                                sessionId: $sessionId,
+                                subjectId: $subjectId
+                            )
+                            {
+                            validationErrors
+                            }
+                            }
+                    ''',
+                    importedMetadata=json.dumps(my_imported_condition_metadata),
+                    whichTabToValidate="conditionMetadata",
+                    sessionId=session_id
+                )
+
+                if len(data["metadataValidator"]["validationErrors"]) > 0:
+                    print("The following errors with condition metadata were found:")
+                    for validation_error in data["metadataValidator"]["validationErrors"]:
+                        print(validation_error)
+                    return data["metadataValidator"]["validationErrors"]
 
         # Retrieve existing metadata
         data = self._dispatch_graphql(
@@ -747,10 +781,16 @@ class MoveshelfApi(object):
         metadata_str = data['node'].get('metadata')
         metadata_obj = json.loads(metadata_str) if metadata_str is not None else {}
         existing_metadata = metadata_obj.get("metadata", None)
+        existing_condition_metadata = metadata_obj.get("conditionMetadata", None)
 
         # Merge dictionaries and write into resulting dict
-        merged_metadata = self._merge_metadata_dictionaries(existing_metadata, my_imported_metadata)
-        metadata_obj["metadata"] = merged_metadata
+        if my_imported_metadata:
+            merged_metadata = self._merge_metadata_dictionaries(existing_metadata, my_imported_metadata)
+            metadata_obj["metadata"] = merged_metadata
+
+        if my_imported_condition_metadata:
+            merged_condition_metadata = self._merge_metadata_dictionaries(existing_condition_metadata, my_imported_condition_metadata)
+            metadata_obj["conditionMetadata"] = merged_condition_metadata
 
         # Update session metadata
         data = self._dispatch_graphql(
@@ -975,9 +1015,14 @@ class MoveshelfApi(object):
                     if key in imported_metadata:
                         merged_metadata[key] = imported_metadata[key]
 
-                # Case 2: Dict with empty "value"
+                # Case 2: Dict with empty "value" or containing keys with empty values (e.g., conditionMetadata)
                 elif isinstance(value, dict):
                     if value.get("value") in ["", []]:
+                        if key in imported_metadata:
+                            merged_metadata[key] = imported_metadata[key]
+                    elif value == {} or all(
+                            val in ["", []] for val in value.values()
+                    ):
                         if key in imported_metadata:
                             merged_metadata[key] = imported_metadata[key]
 
